@@ -3,7 +3,7 @@ package com.belleza.reservas.model;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
+
 import lombok.Setter;
 
 import java.math.BigDecimal;
@@ -12,7 +12,7 @@ import java.math.BigDecimal;
 @Table(name = "servicios")
 @Getter
 @Setter
-@NoArgsConstructor
+
 public class Servicio {
 
     @Id

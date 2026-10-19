@@ -6,6 +6,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.dao.DataIntegrityViolationException;
 
 @RestControllerAdvice
 public class ManejadorErrores {
@@ -15,9 +16,10 @@ public class ManejadorErrores {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
-    @ExceptionHandler(ReglaNegocioException.class)
-    public ProblemDetail reglaNegocio(ReglaNegocioException ex) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ProblemDetail conflictoDeDatos(DataIntegrityViolationException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+                "El registro viola una restricción de datos (por ejemplo, un nombre o email duplicado)");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

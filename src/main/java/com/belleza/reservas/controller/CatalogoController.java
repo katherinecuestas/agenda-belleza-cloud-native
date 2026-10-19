@@ -1,5 +1,9 @@
 package com.belleza.reservas.controller;
 
+import com.belleza.reservas.dto.EspecialistaRequest;
+import com.belleza.reservas.dto.EspecialistaResponse;
+import com.belleza.reservas.dto.ServicioRequest;
+import com.belleza.reservas.dto.ServicioResponse;
 import com.belleza.reservas.model.Especialista;
 import com.belleza.reservas.model.Servicio;
 import com.belleza.reservas.repository.EspecialistaRepository;
@@ -24,26 +28,37 @@ public class CatalogoController {
     }
 
     @GetMapping("/servicios")
-    public List<Servicio> servicios() {
-        return servicioRepository.findAll();
+    public List<ServicioResponse> servicios() {
+        return servicioRepository.findAll().stream()
+                .map(ServicioResponse::from)
+                .toList();
     }
 
     @PostMapping("/servicios")
     @ResponseStatus(HttpStatus.CREATED)
-    public Servicio crearServicio(@Valid @RequestBody Servicio servicio) {
-        servicio.setId(null);
-        return servicioRepository.save(servicio);
+    public ServicioResponse crearServicio(@Valid @RequestBody ServicioRequest req) {
+        Servicio s = new Servicio();
+        s.setNombre(req.nombre());
+        s.setDescripcion(req.descripcion());
+        s.setDuracionMinutos(req.duracionMinutos());
+        s.setPrecio(req.precio());
+        return ServicioResponse.from(servicioRepository.save(s));
     }
 
     @GetMapping("/especialistas")
-    public List<Especialista> especialistas() {
-        return especialistaRepository.findAll();
+    public List<EspecialistaResponse> especialistas() {
+        return especialistaRepository.findAll().stream()
+                .map(EspecialistaResponse::from)
+                .toList();
     }
 
     @PostMapping("/especialistas")
     @ResponseStatus(HttpStatus.CREATED)
-    public Especialista crearEspecialista(@Valid @RequestBody Especialista especialista) {
-        especialista.setId(null);
-        return especialistaRepository.save(especialista);
+    public EspecialistaResponse crearEspecialista(@Valid @RequestBody EspecialistaRequest req) {
+        Especialista e = new Especialista();
+        e.setNombre(req.nombre());
+        e.setEmail(req.email());
+        e.setEspecialidad(req.especialidad());
+        return EspecialistaResponse.from(especialistaRepository.save(e));
     }
 }
