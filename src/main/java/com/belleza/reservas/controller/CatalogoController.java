@@ -2,12 +2,11 @@ package com.belleza.reservas.controller;
 
 import com.belleza.reservas.dto.EspecialistaRequest;
 import com.belleza.reservas.dto.EspecialistaResponse;
+import com.belleza.reservas.dto.EstadoRequest;
 import com.belleza.reservas.dto.ServicioRequest;
 import com.belleza.reservas.dto.ServicioResponse;
-import com.belleza.reservas.model.Especialista;
-import com.belleza.reservas.model.Servicio;
-import com.belleza.reservas.repository.EspecialistaRepository;
-import com.belleza.reservas.repository.ServicioRepository;
+import com.belleza.reservas.service.CatalogoService;
+
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -18,47 +17,65 @@ import java.util.List;
 @RequestMapping("/v1")
 public class CatalogoController {
 
-    private final ServicioRepository servicioRepository;
-    private final EspecialistaRepository especialistaRepository;
+    private final CatalogoService catalogoService;
 
-    public CatalogoController(ServicioRepository servicioRepository,
-            EspecialistaRepository especialistaRepository) {
-        this.servicioRepository = servicioRepository;
-        this.especialistaRepository = especialistaRepository;
+    public CatalogoController(CatalogoService catalogoService) {
+        this.catalogoService = catalogoService;
     }
 
     @GetMapping("/servicios")
     public List<ServicioResponse> servicios() {
-        return servicioRepository.findAll().stream()
-                .map(ServicioResponse::from)
-                .toList();
+        return catalogoService.listarServicios();
+    }
+
+    @GetMapping("/servicios/{id}")
+    public ServicioResponse servicio(@PathVariable Long id) {
+        return catalogoService.obtenerServicio(id);
     }
 
     @PostMapping("/servicios")
     @ResponseStatus(HttpStatus.CREATED)
     public ServicioResponse crearServicio(@Valid @RequestBody ServicioRequest req) {
-        Servicio s = new Servicio();
-        s.setNombre(req.nombre());
-        s.setDescripcion(req.descripcion());
-        s.setDuracionMinutos(req.duracionMinutos());
-        s.setPrecio(req.precio());
-        return ServicioResponse.from(servicioRepository.save(s));
+        return catalogoService.crearServicio(req);
+    }
+
+    @PutMapping("/servicios/{id}")
+    public ServicioResponse actualizarServicio(@PathVariable Long id,
+            @Valid @RequestBody ServicioRequest req) {
+        return catalogoService.actualizarServicio(id, req);
+    }
+
+    @PatchMapping("/servicios/{id}/estado")
+    public ServicioResponse estadoServicio(@PathVariable Long id,
+            @Valid @RequestBody EstadoRequest req) {
+        return catalogoService.cambiarEstadoServicio(id, req);
     }
 
     @GetMapping("/especialistas")
     public List<EspecialistaResponse> especialistas() {
-        return especialistaRepository.findAll().stream()
-                .map(EspecialistaResponse::from)
-                .toList();
+        return catalogoService.listarEspecialistas();
+    }
+
+    @GetMapping("/especialistas/{id}")
+    public EspecialistaResponse especialista(@PathVariable Long id) {
+        return catalogoService.obtenerEspecialista(id);
     }
 
     @PostMapping("/especialistas")
     @ResponseStatus(HttpStatus.CREATED)
     public EspecialistaResponse crearEspecialista(@Valid @RequestBody EspecialistaRequest req) {
-        Especialista e = new Especialista();
-        e.setNombre(req.nombre());
-        e.setEmail(req.email());
-        e.setEspecialidad(req.especialidad());
-        return EspecialistaResponse.from(especialistaRepository.save(e));
+        return catalogoService.crearEspecialista(req);
+    }
+
+    @PutMapping("/especialistas/{id}")
+    public EspecialistaResponse actualizarEspecialista(@PathVariable Long id,
+            @Valid @RequestBody EspecialistaRequest req) {
+        return catalogoService.actualizarEspecialista(id, req);
+    }
+
+    @PatchMapping("/especialistas/{id}/estado")
+    public EspecialistaResponse estadoEspecialista(@PathVariable Long id,
+            @Valid @RequestBody EstadoRequest req) {
+        return catalogoService.cambiarEstadoEspecialista(id, req);
     }
 }
