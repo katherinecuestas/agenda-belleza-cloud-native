@@ -1,7 +1,3 @@
-resource "aws_apigatewayv2_api" "api_manager" {
-  name          = "api-reservas-belleza"
-  protocol_type = "HTTP"
-}
 resource "aws_apigatewayv2_integration" "backend" {
   api_id                 = aws_apigatewayv2_api.api_manager.id
   integration_type       = "HTTP_PROXY"
@@ -19,4 +15,15 @@ resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.api_manager.id
   name        = "$default"
   auto_deploy = true
+}
+resource "aws_apigatewayv2_api" "api_manager" {
+  name          = "api-reservas-belleza"
+  protocol_type = "HTTP"
+
+  cors_configuration {
+    allow_origins = ["http://localhost:4200"]
+    allow_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    allow_headers = ["authorization", "content-type"]
+    max_age       = 300
+  }
 }
