@@ -39,3 +39,4 @@ build/
 *.tfstate.*
 .terraform/
 CONTEXTO_PROYECTO.md
+*.tfplan
