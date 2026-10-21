@@ -1,0 +1,45 @@
+<h1>Identidad con Cognito</h1>
+
+@if (faltantes.length > 0) {
+  <p class="error">Falta configurar: {{ faltantes.join(', ') }}</p>
+} @else {
+  <details>
+    <summary>Configuración cargada (config.json)</summary>
+    <pre>{{ config | json }}</pre>
+  </details>
+}
+
+@if (sesion.sesionIniciada()) {
+  <p>Sesión iniciada como <strong>{{ sesion.email() }}</strong>
+    · grupos: <strong>{{ sesion.grupos().join(', ') || 'ninguno' }}</strong></p>
+
+  <details open>
+    <summary>ID Token · claims</summary>
+    <pre>{{ idClaims() | json }}</pre>
+  </details>
+
+  <details>
+    <summary>Access Token · claims</summary>
+    <pre>{{ accessClaims() | json }}</pre>
+  </details>
+
+  <div class="botones">
+    <button (click)="llamar(api.obtenerUserInfo.bind(api))">/oauth2/userInfo</button>
+    <button (click)="llamar(() => api.obtenerIndicadores(true))">/datos con token</button>
+    <button class="peligro" (click)="llamar(() => api.obtenerIndicadores(false))">/datos SIN token</button>
+  </div>
+
+  @if (cargando()) {
+    <p>Llamando…</p>
+  }
+  @if (resultado(); as r) {
+    @if (!cargando()) {
+      <div class="resultado" [class.ok]="r.ok" [class.falla]="!r.ok">
+        <p><strong>{{ r.descripcion }}</strong> → HTTP {{ r.status || 'sin respuesta' }}</p>
+        <pre>{{ r.cuerpo | json }}</pre>
+      </div>
+    }
+  }
+} @else {
+  <button (click)="auth.login()">Iniciar sesión con Cognito</button>
+}

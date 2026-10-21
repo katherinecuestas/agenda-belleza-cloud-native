@@ -1,0 +1,26 @@
+<section class="portada tarjeta">
+  <h1>Agenda Belleza</h1>
+  <p class="sutil">Reserva tu hora en el salón y sigue el estado de tus citas.</p>
+
+  @if (faltantes.length > 0) {
+    <p class="error">Falta configurar en config.json: {{ faltantes.join(', ') }}</p>
+  }
+  @if (sesion.errorLogin(); as error) {
+    <p class="error" role="alert">No se pudo iniciar sesión: {{ error }}</p>
+  }
+
+  @if (!sesion.sesionIniciada()) {
+    <button (click)="sesion.login()">Iniciar sesión con Cognito</button>
+  } @else if (!sesion.vigente()) {
+    <p>Tu sesión expiró.</p>
+    <button (click)="sesion.login()">Iniciar sesión con Cognito</button>
+  } @else if (!sesion.rutaInicial()) {
+    <p class="aviso">
+      Tu usuaria no pertenece al grupo <strong>clientes</strong> ni al grupo
+      <strong>aprobadores</strong>. Pide que te asignen uno en Cognito.
+    </p>
+    <a routerLink="/identidad">Ver mis claims</a>
+  } @else {
+    <p class="sutil">Redirigiendo…</p>
+  }
+</section>

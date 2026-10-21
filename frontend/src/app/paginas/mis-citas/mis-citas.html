@@ -1,0 +1,87 @@
+<h1>Mis citas</h1>
+<p class="sutil">Todos los horarios están en hora de Chile continental.</p>
+
+@if (error(); as mensaje) {
+  <p class="error" role="alert">{{ mensaje }}</p>
+}
+@if (exito(); as mensaje) {
+  <p class="exito" role="status">{{ mensaje }}</p>
+}
+
+<form class="tarjeta" (ngSubmit)="guardar()">
+  <h2>{{ editandoId() ? 'Editar cita' : 'Reservar una cita' }}</h2>
+
+  <div class="campos">
+    <label>
+      Servicio
+      <select name="servicio" [(ngModel)]="servicioId">
+        <option [ngValue]="null" disabled>Elige un servicio</option>
+        @for (s of serviciosActivos(); track s.id) {
+          <option [ngValue]="s.id">{{ s.nombre }} · {{ s.duracionMinutos }} min · {{ pesos(s.precio) }}</option>
+        }
+      </select>
+    </label>
+
+    <label>
+      Especialista
+      <select name="especialista" [(ngModel)]="especialistaId">
+        <option [ngValue]="null" disabled>Elige un especialista</option>
+        @for (e of especialistasActivos(); track e.id) {
+          <option [ngValue]="e.id">{{ e.nombre }}{{ e.especialidad ? ' · ' + e.especialidad : '' }}</option>
+        }
+      </select>
+    </label>
+
+    <label>
+      Fecha y hora
+      <input type="datetime-local" name="inicio" [(ngModel)]="inicio" [min]="minimo" />
+    </label>
+
+    <label class="ancho">
+      Notas para el salón (opcional)
+      <textarea name="notas" [(ngModel)]="notas" maxlength="500" rows="2"></textarea>
+    </label>
+  </div>
+
+  <div class="botones">
+    <button type="submit" [disabled]="guardando()">
+      {{ guardando() ? 'Guardando…' : editandoId() ? 'Guardar cambios' : 'Reservar' }}
+    </button>
+    @if (editandoId()) {
+      <button type="button" class="secundario" (click)="limpiarFormulario()">Descartar edición</button>
+    }
+  </div>
+</form>
+
+<h2>Mis reservas</h2>
+
+@if (cargando()) {
+  <p class="sutil">Cargando tus citas…</p>
+} @else if (citas().length === 0) {
+  <p class="sutil">Todavía no tienes citas.</p>
+} @else {
+  <ul class="lista-citas">
+    @for (c of citas(); track c.id) {
+      <li class="tarjeta cita" [class.en-edicion]="editandoId() === c.id">
+        <div class="cita-cabecera">
+          <strong>{{ c.servicio }}</strong>
+          <span [class]="'estado estado-' + c.estado.toLowerCase()">{{ c.estado }}</span>
+        </div>
+        <p>con {{ c.especialista }}</p>
+        <p>{{ fechaHora(c.inicio) }} – {{ hora(c.fin) }}</p>
+        @if (c.notasCliente) {
+          <p class="sutil">Tus notas: {{ c.notasCliente }}</p>
+        }
+        @if (c.comentarioAprobador) {
+          <p class="comentario">Comentario del salón: {{ c.comentarioAprobador }}</p>
+        }
+        @if (c.estado === 'PENDIENTE') {
+          <div class="botones">
+            <button class="secundario" (click)="editar(c)">Editar</button>
+            <button class="peligro" (click)="cancelar(c)">Cancelar cita</button>
+          </div>
+        }
+      </li>
+    }
+  </ul>
+}

@@ -1,24 +1,166 @@
+/* Paleta del salón: rosa y lila suaves, con modo oscuro */
 :root {
   color-scheme: light dark;
   font-family: system-ui, sans-serif;
   line-height: 1.5;
+
+  --fondo: #fbf6f9;
+  --superficie: #ffffff;
+  --texto: #3a2a35;
+  --sutil: #77636f;
+  --borde: #ecdce6;
+  --primario: #a3427a;
+  --primario-hover: #8a3466;
+  --texto-boton: #ffffff;
+  --lila: #7b5fb0;
+  --lila-suave: #f2ecfa;
+  --rosa-suave: #fbeaf2;
 }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fondo: #1d181c;
+    --superficie: #282127;
+    --texto: #f3e8ef;
+    --sutil: #b9a5b2;
+    --borde: #43363f;
+    --primario: #e29bc2;
+    --primario-hover: #edb6d3;
+    --texto-boton: #2a1622;
+    --lila: #c2a9ef;
+    --lila-suave: #332a40;
+    --rosa-suave: #3a2632;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--fondo);
+  color: var(--texto);
+}
+
 main {
   max-width: 46rem;
   margin: 0 auto;
   padding: 2rem 1.25rem;
 }
+
+h1,
+h2 {
+  line-height: 1.2;
+}
+h1 {
+  font-size: 1.7rem;
+  margin: 0 0 0.35rem;
+}
+h2 {
+  font-size: 1.2rem;
+  margin: 1.75rem 0 0.75rem;
+}
+
+a {
+  color: var(--lila);
+}
+
+/* ───────── Barra superior ───────── */
+
+.barra {
+  background: var(--superficie);
+  border-bottom: 1px solid var(--borde);
+}
+.barra-contenido {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0.75rem 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+}
+.marca {
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--primario);
+  text-decoration: none;
+}
+.navegacion {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+.navegacion a {
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  color: var(--texto);
+  text-decoration: none;
+}
+.navegacion a:hover {
+  background: var(--rosa-suave);
+}
+.navegacion a.activo {
+  background: var(--lila-suave);
+  color: var(--lila);
+  font-weight: 600;
+}
+.usuario {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+  color: var(--sutil);
+}
+.email {
+  overflow-wrap: anywhere;
+}
+
+/* ───────── Botones ───────── */
+
 button {
   font: inherit;
   padding: 0.55rem 1rem;
   border: 0;
   border-radius: 7px;
-  background: #2f5bea;
-  color: #fff;
+  background: var(--primario);
+  color: var(--texto-boton);
   cursor: pointer;
+}
+button:hover:not(:disabled) {
+  background: var(--primario-hover);
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+button.secundario {
+  background: var(--lila-suave);
+  color: var(--lila);
+}
+button.secundario:hover:not(:disabled) {
+  background: var(--rosa-suave);
 }
 button.peligro {
   background: #b3261e;
+  color: #ffffff;
+}
+button.peligro:hover:not(:disabled) {
+  background: #8f1e18;
+}
+button.aprobar {
+  background: #1a7f45;
+  color: #ffffff;
+}
+button.aprobar:hover:not(:disabled) {
+  background: #146637;
+}
+button.enlace {
+  background: none;
+  color: inherit;
+  padding: 0 0.25rem;
+  text-decoration: underline;
+}
+button.enlace:hover {
+  background: none;
 }
 .botones {
   display: flex;
@@ -26,6 +168,161 @@ button.peligro {
   gap: 0.5rem;
   margin: 1rem 0;
 }
+
+/* ───────── Tarjetas y formularios ───────── */
+
+.tarjeta {
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  padding: 1rem 1.15rem;
+}
+.tarjeta h2 {
+  margin-top: 0;
+}
+.portada {
+  text-align: center;
+  padding: 2.5rem 1.25rem;
+}
+.sutil {
+  color: var(--sutil);
+}
+.campos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.85rem;
+}
+.campos .ancho {
+  grid-column: 1 / -1;
+}
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+input,
+select,
+textarea {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--borde);
+  border-radius: 7px;
+  background: var(--fondo);
+  color: var(--texto);
+  width: 100%;
+  box-sizing: border-box;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--lila);
+  outline-offset: 1px;
+}
+textarea {
+  resize: vertical;
+}
+
+/* ───────── Citas ───────── */
+
+.lista-citas {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.85rem;
+}
+.cita p {
+  margin: 0.25rem 0;
+}
+.cita label {
+  margin-top: 0.75rem;
+}
+.cita.en-edicion {
+  outline: 2px solid var(--lila);
+}
+.cita-cabecera {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+.comentario {
+  background: var(--rosa-suave);
+  border-radius: 7px;
+  padding: 0.5rem 0.75rem;
+}
+code {
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.estado {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.estado-pendiente {
+  background: #fff1cc;
+  color: #6e4f00;
+}
+.estado-aprobada {
+  background: #dff3e6;
+  color: #17603a;
+}
+.estado-rechazada {
+  background: #fdecea;
+  color: #8f1e18;
+}
+.estado-cancelada {
+  background: #ebe7ea;
+  color: #554d52;
+}
+
+/* ───────── Mensajes ───────── */
+
+.error,
+.exito,
+.aviso {
+  padding: 0.75rem 1rem;
+  border-radius: 7px;
+}
+.error {
+  background: #fdecea;
+  color: #8f1e18;
+}
+.exito {
+  background: #dff3e6;
+  color: #17603a;
+}
+.aviso {
+  background: #f2ecfa;
+  color: #4b3778;
+}
+.aviso-cerrable {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+button.cerrar {
+  background: none;
+  color: inherit;
+  padding: 0.1rem 0.45rem;
+  line-height: 1;
+  font-size: 1rem;
+}
+button.cerrar:hover:not(:disabled) {
+  background: rgba(75, 55, 120, 0.12);
+}
+
+/* ───────── Demo de identidad ───────── */
+
 pre {
   background: rgba(127, 127, 127, 0.12);
   padding: 0.75rem;
@@ -43,10 +340,4 @@ pre {
 }
 .resultado.falla {
   border-color: #b3261e;
-}
-.error {
-  background: #fdecea;
-  color: #8f1e18;
-  padding: 0.75rem 1rem;
-  border-radius: 7px;
 }

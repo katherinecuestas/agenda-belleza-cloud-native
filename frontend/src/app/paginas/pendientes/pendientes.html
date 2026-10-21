@@ -1,0 +1,60 @@
+<h1>Citas pendientes</h1>
+<p class="sutil">Aprueba o rechaza las reservas. Los horarios están en hora de Chile continental.</p>
+
+@if (error(); as mensaje) {
+  <p class="error" role="alert">{{ mensaje }}</p>
+}
+@if (exito(); as mensaje) {
+  <p class="exito" role="status">{{ mensaje }}</p>
+}
+
+<div class="botones">
+  <button class="secundario" (click)="cargar()" [disabled]="cargando()">Actualizar lista</button>
+</div>
+
+@if (cargando()) {
+  <p class="sutil">Cargando pendientes…</p>
+} @else if (pendientes().length === 0) {
+  <p class="sutil">No hay citas pendientes.</p>
+} @else {
+  <ul class="lista-citas">
+    @for (c of pendientes(); track c.id) {
+      <li class="tarjeta cita">
+        <div class="cita-cabecera">
+          <strong>{{ c.servicio }}</strong>
+          <span [class]="'estado estado-' + c.estado.toLowerCase()">{{ c.estado }}</span>
+        </div>
+        <p>con {{ c.especialista }} · {{ fechaHora(c.inicio) }} – {{ hora(c.fin) }}</p>
+        <p class="sutil">Clienta: <code>{{ c.clienteId }}</code></p>
+        @if (c.notasCliente) {
+          <p class="comentario">Notas de la clienta: {{ c.notasCliente }}</p>
+        }
+
+        <label>
+          Comentario para la clienta
+          <textarea
+            [name]="'comentario-' + c.id"
+            [ngModel]="comentario(c.id)"
+            (ngModelChange)="ponerComentario(c.id, $event)"
+            maxlength="500"
+            rows="2"
+            placeholder="Obligatorio si rechazas"
+          ></textarea>
+        </label>
+
+        @if (errorCita(); as e) {
+          @if (e.id === c.id) {
+            <p class="error" role="alert">{{ e.mensaje }}</p>
+          }
+        }
+
+        <div class="botones">
+          <button class="aprobar" (click)="resolver(c, true)" [disabled]="procesando() !== null">
+            {{ procesando() === c.id ? 'Enviando…' : 'Aprobar' }}
+          </button>
+          <button class="peligro" (click)="resolver(c, false)" [disabled]="procesando() !== null">Rechazar</button>
+        </div>
+      </li>
+    }
+  </ul>
+}
