@@ -1,0 +1,26 @@
+# RabbitMQ local para el sistema de reservas de belleza (guía 2.1.2).
+# Uso:  cd rabbitmq ; docker compose up -d
+# Usuario y clave salen de rabbitmq/.env (copia .env.example y cambia la clave).
+services:
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: rabbitmq-salon # "rabbitmq" ya lo usa otro proyecto en esta máquina
+    ports:
+      - "5672:5672"   # AMQP: aquí se conectan los microservicios
+      - "15672:15672" # panel web: http://localhost:15672
+    environment:
+      # Solo se aplican la PRIMERA vez que se crea el volumen
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?Falta RABBITMQ_USER en rabbitmq/.env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:?Falta RABBITMQ_PASS en rabbitmq/.env}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq # colas y mensajes durables sobreviven a un reinicio
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  rabbitmq_data:

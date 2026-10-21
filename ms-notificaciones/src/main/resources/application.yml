@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: ms-notificaciones
+
+  # En local, usuario y clave salen del mismo .env que usa docker compose.
+  # optional: si el archivo no existe (CI, ECS), no falla y se usan las variables de entorno.
+  config:
+    import: "optional:file:../rabbitmq/.env[.properties]"
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASS:guest}
+
+server:
+  port: 8081
+
+# Nombres de colas y exchanges: SOLO aquí. Las clases los leen con ${...}.
+salon:
+  mensajeria:
+    colas:
+      saludos: salon.saludos
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
