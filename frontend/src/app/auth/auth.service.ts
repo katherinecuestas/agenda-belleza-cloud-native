@@ -105,6 +105,16 @@ export class AuthService {
     return texto ? (JSON.parse(texto) as Tokens) : null;
   }
 
+  /** Cierra la sesión en la app Y en Cognito. Sin /logout, el próximo login entra solo (SSO). */
+    logout(): void {
+    sessionStorage.removeItem(CLAVE_TOKENS);
+    const params = new URLSearchParams({
+        client_id: this.cfg.clientId,
+        logout_uri: this.cfg.redirectUri,
+    });
+    window.location.assign(`${this.cfg.cognitoDomain}/logout?${params}`);
+    }
+
   /** verifier, state y nonce son de un solo uso: cumplida su función, se borran. */
   private limpiarFlujo(): void {
     sessionStorage.removeItem(CLAVE_VERIFIER);

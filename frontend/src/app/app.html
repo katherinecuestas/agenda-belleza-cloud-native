@@ -13,6 +13,7 @@
 
   @if (sesionIniciada()) {
     <p>Sesión iniciada.</p>
+    <button (click)="auth.logout()">Cerrar sesión</button>
 
     <details open>
       <summary>ID Token · claims</summary>
