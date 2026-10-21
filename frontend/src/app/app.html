@@ -23,6 +23,21 @@
       <summary>Access Token · claims</summary>
       <pre>{{ accessClaims() | json }}</pre>
     </details>
+    <div>
+      <button (click)="llamar(api.obtenerUserInfo.bind(api))">/oauth2/userInfo</button>
+      <button (click)="llamar(() => api.obtenerIndicadores(true))">/datos con token</button>
+      <button (click)="llamar(() => api.obtenerIndicadores(false))">/datos SIN token</button>
+    </div>
+
+    @if (cargando()) {
+      <p>Llamando…</p>
+    }
+    @if (resultado(); as r) {
+      @if (!cargando()) {
+        <p><strong>{{ r.descripcion }}</strong> → HTTP {{ r.status || 'sin respuesta' }}</p>
+        <pre>{{ r.cuerpo | json }}</pre>
+      }
+    }
   } @else {
     <button (click)="auth.login()">Iniciar sesión con Cognito</button>
   }

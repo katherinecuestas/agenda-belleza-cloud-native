@@ -4,6 +4,7 @@ import { RouterOutlet } from '@angular/router';
 import { APP_CONFIG, configuracionIncompleta } from './auth/config';
 import { AuthService } from './auth/auth.service';
 import { decodificarJwt } from './auth/jwt';
+import { ApiService, Resultado } from './api/api.service';
 
 @Component({
   imports: [RouterOutlet, JsonPipe],
@@ -20,6 +21,15 @@ export class App implements OnInit {
   protected readonly error = signal<string | null>(null);
   protected readonly idClaims = signal<Record<string, any> | null>(null);
   protected readonly accessClaims = signal<Record<string, any> | null>(null);
+  protected readonly api = inject(ApiService);
+  protected readonly resultado = signal<Resultado | null>(null);
+  protected readonly cargando = signal(false);
+
+  protected async llamar(fn: () => Promise<Resultado>) {
+    this.cargando.set(true);
+    this.resultado.set(await fn());
+    this.cargando.set(false);
+  }
 
   private mostrarClaims() {
     const t = this.auth.getTokens();
