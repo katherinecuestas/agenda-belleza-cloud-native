@@ -1,0 +1,11 @@
+<main>
+  <h1>Agenda Belleza · Identidad con Cognito</h1>
+
+  @if (faltantes.length > 0) {
+    <p>Falta configurar: {{ faltantes.join(', ') }}</p>
+  } @else {
+    <pre>{{ config | json }}</pre>
+  }
+</main>
+
+<router-outlet />
