@@ -1,0 +1,67 @@
+name: "Back · Build"
+
+# Compila y prueba el backend Spring Boot. Si termina bien en main, dispara "Back · Deploy (ECS)".
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "pom.xml"
+      - "Dockerfile"
+      - "mvnw"
+      - ".mvn/**"
+      - ".github/workflows/back-build.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "pom.xml"
+      - "Dockerfile"
+      - "mvnw"
+      - ".mvn/**"
+      - ".github/workflows/back-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: back-build-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Tests y empaquetado
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Instalar Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      # Desde Windows, git puede no guardar el permiso de ejecución
+      - name: Permiso de ejecución para mvnw
+        run: chmod +x mvnw
+
+      # Los tests usan el perfil "test" con H2 en memoria: no necesitan PostgreSQL
+      - name: Compilar, probar y empaquetar
+        run: ./mvnw -B verify
+
+      - name: Subir el jar como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: back-jar
+          path: target/reservas-0.0.1-SNAPSHOT.jar
+          if-no-files-found: error
+          retention-days: 7

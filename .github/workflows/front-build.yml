@@ -1,0 +1,64 @@
+name: "Front · Build"
+
+# Compila y prueba el front Angular. Si termina bien en main, dispara "Front · Deploy (Amplify)".
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/front-build.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/front-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Un build nuevo de la misma rama cancela el anterior: solo interesa el último
+concurrency:
+  group: front-build-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+    working-directory: frontend
+
+jobs:
+  build:
+    name: Tests y build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Instalar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependencias (npm ci)
+        run: npm ci
+
+      # Runner: Vitest con jsdom (@angular/build:unit-test). No abre navegador: corre headless.
+      - name: Tests unitarios
+        run: npx ng test --watch=false
+
+      # config.json no está en el repo: se escribe en el deploy, con los valores de Amplify
+      - name: Build de producción
+        run: npx ng build
+
+      - name: Subir el build como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: front-dist
+          path: frontend/dist/frontend/browser
+          if-no-files-found: error
+          retention-days: 7

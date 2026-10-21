@@ -1,0 +1,202 @@
+name: "Back · Deploy (ECS)"
+
+# Lo mismo que scripts/publicar-ecs.ps1, en bash: imagen → ECR → ECS → reapuntar el API Gateway.
+on:
+  workflow_run:
+    workflows: ["Back · Build"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read # para descargar el artifact de otro run
+
+# Nunca dos despliegues a la vez, y uno en curso no se cancela
+concurrency:
+  group: back-deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  IMAGE_TAG: latest # el tag que usa la task definition (infra/ecs.tf)
+  JAR: target/reservas-0.0.1-SNAPSHOT.jar
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  deploy:
+    name: Publicar en ECS Fargate
+    # Solo builds exitosos de un push a main (no de pull requests), o ejecución manual
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # El Dockerfile del mismo commit que se compiló
+      - name: Descargar el código
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      # ── Origen del jar: el artifact del build que disparó este run ──
+      - name: Descargar el jar de "Back · Build"
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: back-jar
+          path: target
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      # ── Ejecución manual: no hay run previo, se compila (con tests) ──
+      - name: Instalar Java 21 (Temurin)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: "[1] Compilar backend (mvnw package)"
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          chmod +x mvnw
+          ./mvnw -B clean package
+
+      - name: Verificar el jar
+        run: test -f "$JAR" || { echo "::error::No existe $JAR (el Dockerfile lo necesita)"; exit 1; }
+
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: "[2] Login en ECR"
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: "[3] Construir y subir la imagen (linux/amd64)"
+        id: imagen
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          IMAGEN="$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          # Además de :latest, un tag con el commit para saber qué versión corre
+          IMAGEN_COMMIT="$REGISTRY/$ECR_REPOSITORY:${COMMIT:0:12}"
+          docker build --platform linux/amd64 -t "$IMAGEN" -t "$IMAGEN_COMMIT" .
+          docker push "$IMAGEN"
+          docker push "$IMAGEN_COMMIT"
+          echo "imagen=$IMAGEN" >> "$GITHUB_OUTPUT"
+          echo "imagen_commit=$IMAGEN_COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: "[4] Forzar un despliegue nuevo en ECS"
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+        run: |
+          DESPLIEGUE=$(aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
+            --force-new-deployment --query 'service.deployments[0].id' --output text)
+          echo "Despliegue: $DESPLIEGUE"
+
+      - name: "[5] Esperar a que el servicio quede estable"
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+        run: aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+
+      - name: "[6] Obtener la IP pública de la tarea nueva"
+        id: tarea
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+        run: |
+          ARNS=$(aws ecs list-tasks --cluster "$ECS_CLUSTER" --service-name "$ECS_SERVICE" \
+            --desired-status RUNNING --query 'taskArns' --output text)
+          if [ -z "$ARNS" ] || [ "$ARNS" = "None" ]; then
+            echo "::error::No hay tareas RUNNING en $ECS_SERVICE"
+            exit 1
+          fi
+
+          # Si hubiera más de una tarea, se toma la que arrancó más tarde
+          # shellcheck disable=SC2086
+          ENI=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks $ARNS --output json \
+            | jq -r '.tasks | sort_by(.startedAt) | last
+                     | .attachments[0].details[] | select(.name == "networkInterfaceId") | .value')
+          if [ -z "$ENI" ] || [ "$ENI" = "null" ]; then
+            echo "::error::La tarea no tiene interfaz de red (networkInterfaceId)"
+            exit 1
+          fi
+
+          IP=$(aws ec2 describe-network-interfaces --network-interface-ids "$ENI" \
+            --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
+          if [ -z "$IP" ] || [ "$IP" = "None" ]; then
+            echo "::error::La interfaz $ENI no tiene IP pública"
+            exit 1
+          fi
+          echo "IP nueva: $IP"
+          echo "ip=$IP" >> "$GITHUB_OUTPUT"
+
+      - name: "[7] Reapuntar las integraciones del API Gateway"
+        id: integraciones
+        env:
+          API_ID: ${{ vars.API_ID }}
+          INTEGRACION_RESERVAS_ID: ${{ vars.INTEGRACION_RESERVAS_ID }}
+          INTEGRACION_APROBACIONES_ID: ${{ vars.INTEGRACION_APROBACIONES_ID }}
+          IP: ${{ steps.tarea.outputs.ip }}
+        run: |
+          URI_RESERVAS=$(aws apigatewayv2 update-integration --api-id "$API_ID" \
+            --integration-id "$INTEGRACION_RESERVAS_ID" \
+            --integration-uri "http://$IP:8080/v1/{proxy}" \
+            --query 'IntegrationUri' --output text)
+          URI_APROBACIONES=$(aws apigatewayv2 update-integration --api-id "$API_ID" \
+            --integration-id "$INTEGRACION_APROBACIONES_ID" \
+            --integration-uri "http://$IP:8080/v1/aprobaciones/{proxy}" \
+            --query 'IntegrationUri' --output text)
+          echo "Reservas:     $URI_RESERVAS"
+          echo "Aprobaciones: $URI_APROBACIONES"
+          echo "uri_reservas=$URI_RESERVAS" >> "$GITHUB_OUTPUT"
+          echo "uri_aprobaciones=$URI_APROBACIONES" >> "$GITHUB_OUTPUT"
+
+      - name: "[8] Health check del backend"
+        id: salud
+        env:
+          IP: ${{ steps.tarea.outputs.ip }}
+        run: |
+          SALUD=$(curl --fail --silent --show-error --max-time 10 \
+            --retry 5 --retry-delay 5 --retry-all-errors \
+            "http://$IP:8080/actuator/health")
+          echo "/actuator/health -> $SALUD"
+          # Una sola línea: GITHUB_OUTPUT no acepta saltos de línea en este formato
+          echo "resultado=$(tr -d '\r\n' <<< "$SALUD")" >> "$GITHUB_OUTPUT"
+
+      - name: Resumen
+        if: always()
+        env:
+          IMAGEN: ${{ steps.imagen.outputs.imagen || 'no publicada' }}
+          IMAGEN_COMMIT: ${{ steps.imagen.outputs.imagen_commit || 'no publicada' }}
+          IP: ${{ steps.tarea.outputs.ip || 'sin obtener' }}
+          URI_RESERVAS: ${{ steps.integraciones.outputs.uri_reservas || 'sin actualizar' }}
+          URI_APROBACIONES: ${{ steps.integraciones.outputs.uri_aprobaciones || 'sin actualizar' }}
+          SALUD: ${{ steps.salud.outputs.resultado || 'falló o no se ejecutó' }}
+        run: |
+          {
+            echo "## Back · Deploy (ECS)"
+            echo "| Dato | Valor |"
+            echo "|---|---|"
+            echo "| Imagen | \`$IMAGEN\` |"
+            echo "| Imagen (commit) | \`$IMAGEN_COMMIT\` |"
+            echo "| IP nueva | \`$IP\` |"
+            echo "| Integración reservas | \`$URI_RESERVAS\` |"
+            echo "| Integración aprobaciones | \`$URI_APROBACIONES\` |"
+            echo "| Health | \`$SALUD\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

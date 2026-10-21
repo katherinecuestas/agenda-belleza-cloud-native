@@ -1,0 +1,159 @@
+name: "Front · Deploy (Amplify)"
+
+# Publica en Amplify el build que generó "Front · Build" (deploy manual de Amplify:
+# create-deployment → PUT del zip → start-deployment).
+on:
+  workflow_run:
+    workflows: ["Front · Build"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read # para descargar el artifact de otro run
+
+# Nunca dos despliegues a la vez, y uno en curso no se cancela
+concurrency:
+  group: front-deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  AMPLIFY_BRANCH: main
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  deploy:
+    name: Publicar en Amplify
+    # Solo builds exitosos de un push a main (no de pull requests), o ejecución manual
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # ── Origen del sitio: el artifact del build que disparó este run ──
+      - name: Descargar el build de "Front · Build"
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: front-dist
+          path: site
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      # ── Ejecución manual: no hay run previo, se compila desde main ──
+      - name: Descargar el código
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+
+      - name: Instalar Node 22
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Compilar el front
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: frontend
+        run: |
+          npm ci
+          npx ng build
+          mkdir -p "$GITHUB_WORKSPACE/site"
+          cp -r dist/frontend/browser/. "$GITHUB_WORKSPACE/site/"
+
+      # ── Configuración en runtime (no está en el repo) ──
+      - name: Escribir config.json
+        env:
+          CONFIG_JSON: ${{ vars.CONFIG_JSON_AMPLIFY }}
+        run: |
+          if [ -z "$CONFIG_JSON" ]; then
+            echo "::error::Falta la variable del repo CONFIG_JSON_AMPLIFY"
+            exit 1
+          fi
+          # Valida que sea JSON y que tenga las 5 claves que lee el front
+          printf '%s' "$CONFIG_JSON" \
+            | jq -e '.region and .cognitoDomain and .clientId and .redirectUri and .apiUrl' > /dev/null \
+            || { echo "::error::CONFIG_JSON_AMPLIFY no es un JSON válido o le faltan claves"; exit 1; }
+          printf '%s' "$CONFIG_JSON" | jq . > site/config.json
+          test -f site/index.html || { echo "::error::El build no trae index.html"; exit 1; }
+          echo "Archivos a publicar:"
+          ls -la site
+
+      - name: Comprimir el contenido del build
+        working-directory: site
+        run: zip -qr "$GITHUB_WORKSPACE/front.zip" .
+
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Desplegar en Amplify
+        id: amplify
+        env:
+          APP_ID: ${{ vars.AMPLIFY_APP_ID }}
+        run: |
+          RESPUESTA=$(aws amplify create-deployment \
+            --app-id "$APP_ID" --branch-name "$AMPLIFY_BRANCH" --output json)
+          UPLOAD_URL=$(jq -r '.zipUploadUrl' <<< "$RESPUESTA")
+          # La URL prefirmada da permiso de escritura: nunca debe aparecer en el log
+          echo "::add-mask::$UPLOAD_URL"
+          JOB_ID=$(jq -r '.jobId' <<< "$RESPUESTA")
+          if [ -z "$JOB_ID" ] || [ "$JOB_ID" = "null" ] || [ -z "$UPLOAD_URL" ] || [ "$UPLOAD_URL" = "null" ]; then
+            echo "::error::create-deployment no devolvió jobId o zipUploadUrl"
+            exit 1
+          fi
+          echo "Job de Amplify: $JOB_ID"
+          echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
+
+          curl --fail --silent --show-error -T "$GITHUB_WORKSPACE/front.zip" "$UPLOAD_URL"
+
+          aws amplify start-deployment \
+            --app-id "$APP_ID" --branch-name "$AMPLIFY_BRANCH" --job-id "$JOB_ID" > /dev/null
+
+          # Espera hasta 15 minutos a que termine
+          for intento in $(seq 1 90); do
+            ESTADO=$(aws amplify get-job --app-id "$APP_ID" --branch-name "$AMPLIFY_BRANCH" \
+              --job-id "$JOB_ID" --query 'job.summary.status' --output text)
+            echo "[$intento] Estado: $ESTADO"
+            case "$ESTADO" in
+              SUCCEED)
+                echo "estado=$ESTADO" >> "$GITHUB_OUTPUT"
+                exit 0 ;;
+              FAILED|CANCELLED)
+                echo "estado=$ESTADO" >> "$GITHUB_OUTPUT"
+                echo "::error::El despliegue de Amplify terminó en $ESTADO"
+                exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "::error::El despliegue no terminó en 15 minutos"
+          exit 1
+
+      - name: Resumen
+        if: always()
+        env:
+          APP_ID: ${{ vars.AMPLIFY_APP_ID }}
+          JOB_ID: ${{ steps.amplify.outputs.job_id || 'sin crear' }}
+          ESTADO: ${{ steps.amplify.outputs.estado || 'sin terminar' }}
+        run: |
+          {
+            echo "## Front · Deploy (Amplify)"
+            echo "| Dato | Valor |"
+            echo "|---|---|"
+            echo "| App | \`$APP_ID\` · rama \`$AMPLIFY_BRANCH\` |"
+            echo "| Job | \`$JOB_ID\` |"
+            echo "| Estado | **$ESTADO** |"
+            echo "| URL | https://$AMPLIFY_BRANCH.$APP_ID.amplifyapp.com |"
+          } >> "$GITHUB_STEP_SUMMARY"
