@@ -53,7 +53,10 @@ resource "aws_cognito_user_pool_client" "spa" {
   allowed_oauth_flows_user_pool_client = true
   allowed_oauth_flows                  = ["code"]
   supported_identity_providers         = ["COGNITO"]
-  allowed_oauth_scopes                 = ["openid", "email", "profile"]
+  allowed_oauth_scopes = concat(
+    ["openid", "email", "profile"],
+    aws_cognito_resource_server.reservas.scope_identifiers
+  )
 
   # Deben coincidir EXACTAMENTE con lo que envíe Angular, barra final incluida
   callback_urls = ["http://localhost:4200/", "${local.url_amplify}/"]
@@ -69,5 +72,23 @@ resource "aws_cognito_user_pool_client" "spa" {
   token_validity_units {
     access_token = "minutes"
     id_token     = "minutes"
+  }
+}
+
+# Tu API de reservas registrada en Cognito, con sus propios scopes.
+# Cada scope se publica como "reservas/<nombre>".
+resource "aws_cognito_resource_server" "reservas" {
+  identifier   = "reservas"
+  name         = "API de reservas de belleza"
+  user_pool_id = aws_cognito_user_pool.pool.id
+
+  scope {
+    scope_name        = "citas"
+    scope_description = "Reservar, ver, editar y cancelar citas propias"
+  }
+
+  scope {
+    scope_name        = "aprobaciones"
+    scope_description = "Aprobar o rechazar citas pendientes"
   }
 }
