@@ -56,8 +56,8 @@ resource "aws_cognito_user_pool_client" "spa" {
   allowed_oauth_scopes                 = ["openid", "email", "profile"]
 
   # Deben coincidir EXACTAMENTE con lo que envíe Angular, barra final incluida
-  callback_urls = ["http://localhost:4200/"]
-  logout_urls   = ["http://localhost:4200/"]
+  callback_urls = ["http://localhost:4200/", "${local.url_amplify}/"]
+  logout_urls   = ["http://localhost:4200/", "${local.url_amplify}/"]
 
   explicit_auth_flows = ["ALLOW_USER_SRP_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
 

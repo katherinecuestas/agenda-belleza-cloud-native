@@ -23,7 +23,7 @@ resource "aws_apigatewayv2_api" "api_manager" {
   protocol_type = "HTTP"
 
   cors_configuration {
-    allow_origins = ["http://localhost:4200"]
+    allow_origins = ["http://localhost:4200", local.url_amplify]
     allow_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
     allow_headers = ["authorization", "content-type"]
     max_age       = 300
