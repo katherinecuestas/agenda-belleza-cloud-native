@@ -7,13 +7,22 @@
     <pre>{{ config | json }}</pre>
   }
 
-  <!-- Solo para probar PKCE. Se borra en el siguiente paso. -->
   @if (error()) {
     <p style="color: crimson">{{ error() }}</p>
   }
 
   @if (sesionIniciada()) {
     <p>Sesión iniciada.</p>
+
+    <details open>
+      <summary>ID Token · claims</summary>
+      <pre>{{ idClaims() | json }}</pre>
+    </details>
+
+    <details>
+      <summary>Access Token · claims</summary>
+      <pre>{{ accessClaims() | json }}</pre>
+    </details>
   } @else {
     <button (click)="auth.login()">Iniciar sesión con Cognito</button>
   }
