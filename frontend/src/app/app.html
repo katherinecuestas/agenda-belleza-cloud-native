@@ -6,6 +6,17 @@
   } @else {
     <pre>{{ config | json }}</pre>
   }
+
+  <!-- Solo para probar PKCE. Se borra en el siguiente paso. -->
+  @if (error()) {
+    <p style="color: crimson">{{ error() }}</p>
+  }
+
+  @if (sesionIniciada()) {
+    <p>Sesión iniciada.</p>
+  } @else {
+    <button (click)="auth.login()">Iniciar sesión con Cognito</button>
+  }
 </main>
 
 <router-outlet />
