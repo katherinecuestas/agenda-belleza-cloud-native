@@ -5,6 +5,8 @@ import com.belleza.reservas.dto.CitaResponse;
 import com.belleza.reservas.service.CitaService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -21,32 +23,32 @@ public class CitaController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public CitaResponse crear(@RequestHeader("X-Cliente-Id") String clienteId,
+    public CitaResponse crear(@AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody CitaRequest req) {
-        return citaService.crear(clienteId, req);
+        return citaService.crear(jwt.getSubject(), req);
     }
 
     @GetMapping
-    public List<CitaResponse> listarMias(@RequestHeader("X-Cliente-Id") String clienteId) {
-        return citaService.listarMias(clienteId);
+    public List<CitaResponse> listarMias(@AuthenticationPrincipal Jwt jwt) {
+        return citaService.listarMias(jwt.getSubject());
     }
 
     @GetMapping("/{id}")
-    public CitaResponse obtener(@RequestHeader("X-Cliente-Id") String clienteId,
+    public CitaResponse obtener(@AuthenticationPrincipal Jwt jwt,
             @PathVariable Long id) {
-        return citaService.obtenerMia(id, clienteId);
+        return citaService.obtenerMia(id, jwt.getSubject());
     }
 
     @PutMapping("/{id}")
-    public CitaResponse actualizar(@RequestHeader("X-Cliente-Id") String clienteId,
+    public CitaResponse actualizar(@AuthenticationPrincipal Jwt jwt,
             @PathVariable Long id,
             @Valid @RequestBody CitaRequest req) {
-        return citaService.actualizar(id, clienteId, req);
+        return citaService.actualizar(id, jwt.getSubject(), req);
     }
 
     @DeleteMapping("/{id}")
-    public CitaResponse cancelar(@RequestHeader("X-Cliente-Id") String clienteId,
+    public CitaResponse cancelar(@AuthenticationPrincipal Jwt jwt,
             @PathVariable Long id) {
-        return citaService.cancelar(id, clienteId);
+        return citaService.cancelar(id, jwt.getSubject());
     }
 }
