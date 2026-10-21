@@ -19,7 +19,7 @@ export interface Tokens {
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly cfg = inject(APP_CONFIG);
-  private readonly scopes = 'openid email profile';
+  private readonly scopes = 'openid email profile reservas/citas reservas/aprobaciones';
 
   async login(): Promise<void> {
     const verifier = aleatorioBase64Url();
