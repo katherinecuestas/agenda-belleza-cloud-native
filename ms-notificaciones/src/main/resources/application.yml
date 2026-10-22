@@ -19,8 +19,17 @@ server:
 # Nombres de colas y exchanges: SOLO aquí. Las clases los leen con ${...}.
 salon:
   mensajeria:
+    exchange:
+      citas: salon.citas.directo # mismo nombre que declara ms-reservas
     colas:
-      saludos: salon.saludos
+      saludos: salon.saludos # guia 2.1.2
+      notificaciones: salon.notificaciones # recibe todo (como all_logs_queue)
+      aprobaciones: salon.aprobaciones # solo citas nuevas (como errors_only_queue)
+    routing:
+      creada: cita.creada
+      aprobada: cita.aprobada
+      rechazada: cita.rechazada
+      cancelada: cita.cancelada
 
 management:
   endpoints:
