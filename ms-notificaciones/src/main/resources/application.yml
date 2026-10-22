@@ -37,6 +37,28 @@ salon:
     idempotencia:
       max-ids-por-cola: 10000
 
+    # ───── Dead letters (guias 2.2.2 y 2.2.3) ─────
+    # Lo que una cola principal rechaza (nack sin reencolar), vence (TTL) o desborda
+    # (max-length) se reenvia al DLX con la routing key de esa cola, y cae en su DLQ.
+    dlx:
+      exchange: salon.citas.dlx # DIRECT, durable
+      routing:
+        notificaciones: notificaciones
+        comprobantes: comprobantes
+        aprobaciones: aprobaciones
+    dlq:
+      notificaciones: salon.notificaciones.dlq
+      comprobantes: salon.comprobantes.dlq
+      aprobaciones: salon.aprobaciones.dlq
+      ttl-ms: 86400000 # 24 h: tiempo para revisar el fallo antes de que se descarte
+    limites: # colas principales
+      ttl-ms: 300000 # 5 min sin consumirse -> DLQ (motivo "expired")
+      max-length: 1000 # al pasar de 1000, el mas antiguo -> DLQ (motivo "maxlen")
+    reintentos: # solo para errores TRANSITORIOS
+      max-reintentos: 3 # despues del primer intento: esperas de 1 s, 2 s y 4 s
+      intervalo-inicial-ms: 1000
+      multiplicador: 2.0
+
 management:
   endpoints:
     web:

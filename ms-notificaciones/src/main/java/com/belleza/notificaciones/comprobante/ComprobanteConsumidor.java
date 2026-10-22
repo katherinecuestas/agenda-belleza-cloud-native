@@ -1,6 +1,7 @@
 package com.belleza.notificaciones.comprobante;
 
 import com.belleza.notificaciones.config.CitasRabbitConfig;
+import com.belleza.notificaciones.error.SimuladorFallos;
 import com.belleza.notificaciones.evento.Ascii;
 import com.belleza.notificaciones.evento.CitaEvento;
 import com.belleza.notificaciones.evento.ConsumoConAck;
@@ -33,8 +34,9 @@ public class ComprobanteConsumidor {
     @RabbitListener(queues = "${salon.mensajeria.colas.comprobantes}",
             containerFactory = CitasRabbitConfig.FACTORY_CITAS)
     public void recibir(CitaEvento evento, Channel channel,
-            @Header(AmqpHeaders.DELIVERY_TAG) long tag) throws IOException {
-        consumo.procesar(cola, evento, channel, tag, e ->
+            @Header(AmqpHeaders.DELIVERY_TAG) long tag,
+            @Header(name = SimuladorFallos.HEADER, required = false) String simularFallo) throws IOException {
+        consumo.procesar(cola, evento, simularFallo, channel, tag, e ->
                 log.info("[COMPROBANTE] generado para cita {} ({}, {})",
                         e.citaId(), Ascii.de(e.servicio()), e.inicio()));
     }

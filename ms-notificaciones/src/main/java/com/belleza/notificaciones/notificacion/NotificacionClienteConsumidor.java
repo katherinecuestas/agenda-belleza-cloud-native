@@ -1,6 +1,7 @@
 package com.belleza.notificaciones.notificacion;
 
 import com.belleza.notificaciones.config.CitasRabbitConfig;
+import com.belleza.notificaciones.error.SimuladorFallos;
 import com.belleza.notificaciones.evento.CitaEvento;
 import com.belleza.notificaciones.evento.ConsumoConAck;
 import com.rabbitmq.client.Channel;
@@ -32,8 +33,9 @@ public class NotificacionClienteConsumidor {
     @RabbitListener(queues = "${salon.mensajeria.colas.notificaciones}",
             containerFactory = CitasRabbitConfig.FACTORY_CITAS)
     public void recibir(CitaEvento evento, Channel channel,
-            @Header(AmqpHeaders.DELIVERY_TAG) long tag) throws IOException {
-        consumo.procesar(cola, evento, channel, tag, e ->
+            @Header(AmqpHeaders.DELIVERY_TAG) long tag,
+            @Header(name = SimuladorFallos.HEADER, required = false) String simularFallo) throws IOException {
+        consumo.procesar(cola, evento, simularFallo, channel, tag, e ->
                 log.info("[NOTIFICACION CLIENTA] cita {} {} (eventoId={})",
                         e.citaId(), e.tipo(), e.eventoId()));
     }
