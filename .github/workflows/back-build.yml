@@ -1,9 +1,11 @@
 name: "Back · Build"
 
-# Compila y prueba el backend Spring Boot. Si termina bien en main, dispara "Back · Deploy (ECS)".
+# Compila y prueba el backend Spring Boot (ms-reservas), en cualquier rama.
+# Si termina bien en main, dispara "Back · Deploy (ECS)": el deploy filtra por main, así que
+# los builds de otras ramas solo compilan y prueban.
 on:
   push:
-    branches: [main]
+    branches: ["**"]
     paths:
       - "src/**"
       - "pom.xml"

@@ -1,0 +1,67 @@
+name: "MS Notificaciones · Build"
+
+# Compila, prueba y construye la imagen de ms-notificaciones (consumidores RabbitMQ + DLQ).
+# No hay deploy aquí: en la nube lo levanta la EC2 con docker compose (infra/ec2-rabbitmq.tf).
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "ms-notificaciones/**"
+      - ".github/workflows/ms-notificaciones-build.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "ms-notificaciones/**"
+      - ".github/workflows/ms-notificaciones-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Un build nuevo de la misma rama cancela el anterior: solo interesa el último
+concurrency:
+  group: ms-notificaciones-build-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+    working-directory: ms-notificaciones
+
+jobs:
+  build:
+    name: Tests, jar e imagen
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Instalar Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: ms-notificaciones/pom.xml
+
+      # Desde Windows, git puede no guardar el permiso de ejecución
+      - name: Permiso de ejecución para mvnw
+        run: chmod +x mvnw
+
+      # Los tests no necesitan RabbitMQ: los listeners no arrancan y la conexión es perezosa
+      - name: Compilar, probar y empaquetar
+        run: ./mvnw -B verify
+
+      - name: Subir el jar como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ms-notificaciones-jar
+          path: ms-notificaciones/target/ms-notificaciones-0.0.1-SNAPSHOT.jar
+          if-no-files-found: error
+          retention-days: 7
+
+      # Solo comprueba que el Dockerfile multi-stage funciona: no se publica la imagen
+      - name: Construir la imagen Docker (sin push)
+        run: docker build -t agenda-belleza/ms-notificaciones:ci-${GITHUB_SHA::12} .
