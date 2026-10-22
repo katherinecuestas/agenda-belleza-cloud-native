@@ -206,3 +206,6 @@ En local, los microservicios leen el usuario y la clave de RabbitMQ desde `rabbi
 - [ms-rabbit-admin/README.md](ms-rabbit-admin/README.md): los endpoints, los bodies, los errores y ejemplos con curl.
 - [docs/PIPELINES.md](docs/PIPELINES.md): los 6 workflows de GitHub Actions, sus secrets y variables.
 - [frontend/README.md](frontend/README.md): los comandos de Angular CLI.
+
+
+**Autora:** Katherine Cuestas Blanco · DSY1107 Desarrollo Cloud Native I · DUOC UC
