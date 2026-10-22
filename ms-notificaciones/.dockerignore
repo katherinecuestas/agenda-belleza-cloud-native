@@ -1,0 +1,16 @@
+# Fuera del contexto de build: se compila dentro de la imagen
+target/
+.mvn/
+mvnw
+mvnw.cmd
+
+# IDE y git
+.idea/
+*.iml
+.vscode/
+.git/
+.gitignore
+
+README.md
+Dockerfile
+.dockerignore
