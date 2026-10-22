@@ -1,3 +1,8 @@
+# Familia de la task definition: update-service --task-definition <familia> usa la última revisión ACTIVE
+output "ecs_task_family" {
+  value = aws_ecs_task_definition.backend.family
+}
+
 output "url_datos" {
   value = "${aws_apigatewayv2_api.api_manager.api_endpoint}/datos"
 }

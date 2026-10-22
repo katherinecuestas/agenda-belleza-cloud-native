@@ -1,0 +1,66 @@
+#!/bin/bash
+# User data de la EC2 de RabbitMQ (plantilla de Terraform: ec2-rabbitmq.tf).
+# Corre UNA vez, como root, en el primer arranque. Todo queda en /var/log/user-data.log.
+#
+# Nota de plantilla: $${VAR} escapa la sintaxis de Terraform; $VAR sin llaves pasa tal cual a bash.
+set -euo pipefail
+exec > >(tee -a /var/log/user-data.log) 2>&1
+echo "=== $(date -Is) inicio user-data"
+
+# Reintenta un comando: justo después de crear la instancia se asocia la EIP y la IP
+# pública cambia, así que una descarga puede cortarse en los primeros segundos.
+reintentar() {
+  local intento
+  for intento in 1 2 3 4 5; do
+    "$@" && return 0
+    echo "Fallo (intento $intento/5): $* -> reintento en 15 s"
+    sleep 15
+  done
+  return 1
+}
+
+# ── 1. Swap de 2 GB: margen para el build con Maven además de los 3 nodos y las 2 JVM ──
+if [ ! -f /swapfile ]; then
+  fallocate -l 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
+# ── 2. Docker y git ──
+reintentar dnf install -y docker git
+systemctl enable --now docker
+usermod -aG docker ec2-user
+
+# ── 3. Plugins docker compose y buildx (AL2023 no los trae en sus repositorios) ──
+PLUGINS=/usr/local/lib/docker/cli-plugins
+mkdir -p "$PLUGINS"
+reintentar curl -fsSL -o "$PLUGINS/docker-compose" \
+  https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64
+# A archivo y no en pipe: "curl | grep -m1" puede cortar a curl (SIGPIPE) y con pipefail abortaría
+reintentar curl -fsSL -o /tmp/buildx-latest.json https://api.github.com/repos/docker/buildx/releases/latest
+BUILDX=$(grep -m1 '"tag_name"' /tmp/buildx-latest.json | cut -d'"' -f4)
+reintentar curl -fsSL -o "$PLUGINS/docker-buildx" \
+  "https://github.com/docker/buildx/releases/download/$${BUILDX}/buildx-$${BUILDX}.linux-amd64"
+chmod +x "$PLUGINS"/docker-*
+docker compose version
+docker buildx version
+
+# ── 4. Código: el repositorio público, en la rama configurada ──
+REPO_DIR=/opt/agenda-belleza
+reintentar git clone --depth 1 --branch "${rama_repo}" "${repo_url}" "$REPO_DIR"
+
+# ── 5. rabbitmq/.env con usuario, clave, cookie y Cognito ──
+# umask 077: el archivo queda legible solo por su dueño. Se decodifica sin imprimirlo.
+umask 077
+echo '${env_b64}' | base64 -d > "$REPO_DIR/rabbitmq/.env"
+umask 022
+chown -R ec2-user:ec2-user "$REPO_DIR"
+
+# ── 6. Levantar el cluster y los microservicios ──
+cd "$REPO_DIR/rabbitmq"
+docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.cloud.yml ps
+
+echo "=== $(date -Is) fin user-data"

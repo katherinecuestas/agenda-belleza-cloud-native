@@ -1,0 +1,55 @@
+# Override para la nube (EC2): se usa JUNTO al docker-compose.yml del cluster.
+#
+#   cd rabbitmq
+#   docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d --build
+#
+# Agrega ms-notificaciones y ms-rabbit-admin en la misma red que los 3 nodos de RabbitMQ.
+# Las imágenes se construyen aquí mismo (Dockerfile multi-stage): la máquina no necesita JDK ni Maven.
+#
+# Variables que lee de rabbitmq/.env (en la EC2 las escribe el user_data de Terraform):
+#   RABBITMQ_USER, RABBITMQ_PASS, RABBITMQ_COOKIE, COGNITO_ISSUER, COGNITO_CLIENT_ID
+
+# Los microservicios esperan a que los 3 nodos estén sanos antes de arrancar
+x-espera-cluster: &espera-cluster
+  rabbitmq-1:
+    condition: service_healthy
+  rabbitmq-2:
+    condition: service_healthy
+  rabbitmq-3:
+    condition: service_healthy
+
+services:
+  ms-notificaciones:
+    build: ../ms-notificaciones
+    image: agenda-belleza/ms-notificaciones:local
+    container_name: ms-notificaciones
+    environment:
+      # Dentro de la red de Docker, los nodos se llaman por su hostname y todos escuchan en 5672
+      RABBITMQ_ADDRESSES: rabbitmq-1:5672,rabbitmq-2:5672,rabbitmq-3:5672
+      RABBITMQ_USER: ${RABBITMQ_USER:?Falta RABBITMQ_USER en rabbitmq/.env}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:?Falta RABBITMQ_PASS en rabbitmq/.env}
+    # Sin puertos publicados: solo consume de RabbitMQ, nadie de afuera necesita llamarlo
+    networks:
+      - rabbitmq_cluster
+    depends_on: *espera-cluster
+    mem_limit: 768m
+    restart: unless-stopped
+
+  ms-rabbit-admin:
+    build: ../ms-rabbit-admin
+    image: agenda-belleza/ms-rabbit-admin:local
+    container_name: ms-rabbit-admin
+    environment:
+      RABBITMQ_ADDRESSES: rabbitmq-1:5672,rabbitmq-2:5672,rabbitmq-3:5672
+      RABBITMQ_USER: ${RABBITMQ_USER:?Falta RABBITMQ_USER en rabbitmq/.env}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:?Falta RABBITMQ_PASS en rabbitmq/.env}
+      # Valida el JWT de Cognito (solo el grupo aprobadores usa /v1/admin/**)
+      COGNITO_ISSUER: ${COGNITO_ISSUER:?Falta COGNITO_ISSUER en rabbitmq/.env}
+      COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID:?Falta COGNITO_CLIENT_ID en rabbitmq/.env}
+    ports:
+      - "8082:8082" # API de administración, protegida con JWT
+    networks:
+      - rabbitmq_cluster
+    depends_on: *espera-cluster
+    mem_limit: 768m
+    restart: unless-stopped

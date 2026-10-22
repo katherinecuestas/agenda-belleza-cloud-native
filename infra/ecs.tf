@@ -54,7 +54,11 @@ resource "aws_ecs_task_definition" "backend" {
     environment = [
       { name = "DB_URL", value = "jdbc:postgresql://${aws_db_instance.postgres.address}:5432/db_belleza_reserva?sslmode=require" },
       { name = "DB_USER", value = aws_db_instance.postgres.username },
-      { name = "DB_PASSWORD", value = var.db_password }
+      { name = "DB_PASSWORD", value = var.db_password },
+      # Cluster RabbitMQ de la EC2 (ec2-rabbitmq.tf): los 3 nodos por IP privada, dentro de la VPC
+      { name = "RABBITMQ_ADDRESSES", value = join(",", [for puerto in [5672, 5673, 5674] : "${aws_instance.rabbitmq.private_ip}:${puerto}"]) },
+      { name = "RABBITMQ_USER", value = var.rabbitmq_user },
+      { name = "RABBITMQ_PASS", value = var.rabbitmq_pass }
     ]
 
     healthCheck = {

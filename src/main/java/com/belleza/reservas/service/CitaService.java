@@ -5,6 +5,8 @@ import com.belleza.reservas.dto.CitaResponse;
 import com.belleza.reservas.dto.ResolucionRequest;
 import com.belleza.reservas.exception.RecursoNoEncontradoException;
 import com.belleza.reservas.exception.ReglaNegocioException;
+import com.belleza.reservas.mensajeria.CitaEvento;
+import com.belleza.reservas.mensajeria.TipoEventoCita;
 import com.belleza.reservas.model.Cita;
 import com.belleza.reservas.model.Especialista;
 import com.belleza.reservas.model.enums.EstadoCita;
@@ -12,6 +14,7 @@ import com.belleza.reservas.model.Servicio;
 import com.belleza.reservas.repository.CitaRepository;
 import com.belleza.reservas.repository.EspecialistaRepository;
 import com.belleza.reservas.repository.ServicioRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,13 +30,17 @@ public class CitaService {
     private final CitaRepository citaRepository;
     private final ServicioRepository servicioRepository;
     private final EspecialistaRepository especialistaRepository;
+    // Solo eventos de Spring: el service no sabe que existe RabbitMQ (ver mensajeria/CitaEventoPublicador)
+    private final ApplicationEventPublisher eventos;
 
     public CitaService(CitaRepository citaRepository,
             ServicioRepository servicioRepository,
-            EspecialistaRepository especialistaRepository) {
+            EspecialistaRepository especialistaRepository,
+            ApplicationEventPublisher eventos) {
         this.citaRepository = citaRepository;
         this.servicioRepository = servicioRepository;
         this.especialistaRepository = especialistaRepository;
+        this.eventos = eventos;
     }
 
     // ───────────── SOLICITANTE (cliente) ─────────────
@@ -54,7 +61,9 @@ public class CitaService {
         cita.setFin(fin);
         cita.setNotasCliente(req.notasCliente());
 
-        return CitaResponse.from(citaRepository.save(cita));
+        Cita guardada = citaRepository.save(cita);
+        eventos.publishEvent(CitaEvento.de(TipoEventoCita.CREADA, guardada));
+        return CitaResponse.from(guardada);
     }
 
     @Transactional(readOnly = true)
@@ -95,6 +104,7 @@ public class CitaService {
         Cita cita = buscarCitaDelCliente(id, clienteId);
         exigirPendiente(cita);
         cita.setEstado(EstadoCita.CANCELADA);
+        eventos.publishEvent(CitaEvento.de(TipoEventoCita.CANCELADA, cita));
         return CitaResponse.from(cita);
     }
 
@@ -121,6 +131,8 @@ public class CitaService {
 
         cita.setEstado(req.aprobar() ? EstadoCita.APROBADA : EstadoCita.RECHAZADA);
         cita.setComentarioAprobador(req.comentario());
+        eventos.publishEvent(CitaEvento.de(
+                req.aprobar() ? TipoEventoCita.APROBADA : TipoEventoCita.RECHAZADA, cita));
         return CitaResponse.from(cita);
     }
 

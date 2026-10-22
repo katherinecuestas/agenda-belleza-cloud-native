@@ -1,0 +1,12 @@
+# Ejemplo de infra/terraform.tfvars. Copia este archivo como terraform.tfvars (queda fuera de git)
+# y reemplaza los valores. NUNCA pongas valores reales en este archivo de ejemplo.
+
+# RDS PostgreSQL
+db_password = "cambia-esta-clave"
+
+# EC2 con el cluster RabbitMQ (ec2-rabbitmq.tf)
+rabbitmq_user   = "salon"
+rabbitmq_pass   = "cambia-esta-clave-larga"           # 12+ caracteres, sin espacios, comillas ni #
+rabbitmq_cookie = "CambiaEstaCookieAleatoriaLarga123" # solo letras y números: openssl rand -hex 32
+mi_ip           = "203.0.113.10/32"                    # tu IP pública con /32 (ver: curl -s https://checkip.amazonaws.com)
+# rama_repo     = "parcial2-rabbitmq"                  # opcional: rama que clona la EC2

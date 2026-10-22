@@ -1,10 +1,12 @@
 # Pipelines de GitHub Actions · Agenda Belleza
 
-El repositorio tiene 4 workflows en `.github/workflows/`: dos de **build** (prueban y empaquetan) y dos de **deploy** (publican en AWS). Cada deploy se dispara solo cuando su build termina bien en `main`.
+El repositorio tiene 6 workflows en `.github/workflows/`: cuatro de **build** (prueban y empaquetan) y dos de **deploy** (publican en AWS). Cada deploy se dispara solo cuando su build termina bien en `main`.
 
 ```text
-push a main (frontend/**)  →  Front · Build  →  Front · Deploy (Amplify)
-push a main (src/**, pom…) →  Back · Build   →  Back · Deploy (ECS)
+push a main (frontend/**)          →  Front · Build             →  Front · Deploy (Amplify)
+push a cualquier rama (src/**, …)  →  Back · Build              →  Back · Deploy (ECS)  (solo si es main)
+push a cualquier rama (ms-…/**)    →  MS Notificaciones · Build    (sin deploy: los levanta la EC2)
+                                   →  MS Rabbit Admin · Build
 ```
 
 Los pull requests a `main` ejecutan solo los builds: nunca despliegan.
@@ -32,7 +34,7 @@ Terraform **no** corre en los pipelines: la infraestructura tiene estado local (
 - **Resumen del run:** app, job, estado y URL publicada.
 
 ### Back · Build — `back-build.yml`
-- **Se dispara con:** push o pull request a `main` que cambie `src/**`, `pom.xml`, `Dockerfile`, `mvnw`, `.mvn/**` o el propio workflow; también a mano.
+- **Se dispara con:** push a **cualquier rama**, o pull request a `main`, que cambie `src/**`, `pom.xml`, `Dockerfile`, `mvnw`, `.mvn/**` o el propio workflow; también a mano. Solo un build exitoso de un push a `main` dispara el deploy: en otras ramas solo compila y prueba.
 - **Pasos:** Java 21 Temurin con caché de Maven → `chmod +x mvnw` → `./mvnw -B verify`.
 - Los tests usan el perfil `test` con H2 en memoria, así que no necesitan PostgreSQL.
 - **Resultado:** el artifact `back-jar`, con `reservas-0.0.1-SNAPSHOT.jar`. Se guarda 7 días.
@@ -43,13 +45,27 @@ Hace lo mismo que `scripts/publicar-ecs.ps1`:
 1. Usa el jar del build que lo disparó. En una ejecución manual, ejecuta `./mvnw package` con tests.
 2. Inicia sesión en ECR con `aws-actions/amazon-ecr-login`.
 3. Ejecuta `docker build --platform linux/amd64` y sube la imagen con el tag `:latest`, que es el que usa la task definition. También la sube con un tag del commit (12 caracteres), para saber qué versión corre.
-4. Ejecuta `aws ecs update-service --force-new-deployment`.
+4. Ejecuta `aws ecs update-service --task-definition <ECS_TASK_FAMILY> --force-new-deployment`. Al pasar la familia sin número de revisión, ECS usa la última revisión ACTIVE, que es la que registra Terraform.
 5. Ejecuta `aws ecs wait services-stable`, que espera como máximo unos 10 minutos.
 6. Obtiene la IP pública de la tarea nueva: `list-tasks` → `describe-tasks` → `networkInterfaceId` → `describe-network-interfaces`.
 7. Ejecuta `update-integration` en las dos integraciones del API Gateway: `…/v1/{proxy}` y `…/v1/aprobaciones/{proxy}`.
 8. Llama a `GET http://<ip>:8080/actuator/health`, con hasta 5 reintentos.
 
 **Resumen del run:** imagen, IP nueva, las dos `IntegrationUri` y el resultado del health check.
+
+### MS Notificaciones · Build — `ms-notificaciones-build.yml`
+- **Se dispara con:** push a **cualquier rama**, o pull request a `main`, que cambie `ms-notificaciones/**` o el propio workflow; también a mano.
+- **Pasos** (dentro de `ms-notificaciones/`): Java 21 Temurin con caché de Maven → `chmod +x mvnw` → `./mvnw -B verify` → `docker build` de la imagen. El `docker build` es **sin push**: solo comprueba que el Dockerfile multi-stage funciona.
+- Los tests no necesitan RabbitMQ: los listeners no arrancan y la conexión AMQP se abre recién al usarla.
+- **Resultado:** el artifact `ms-notificaciones-jar`, con `ms-notificaciones-0.0.1-SNAPSHOT.jar`. Se guarda 7 días.
+
+### MS Rabbit Admin · Build — `ms-rabbit-admin-build.yml`
+- **Se dispara con:** push a **cualquier rama**, o pull request a `main`, que cambie `ms-rabbit-admin/**` o el propio workflow; también a mano.
+- **Pasos** (dentro de `ms-rabbit-admin/`): los mismos que MS Notificaciones · Build.
+- Los tests no necesitan RabbitMQ ni Cognito: el token se simula con `jwt()` de spring-security-test, y el 503 se prueba contra un puerto sin broker.
+- **Resultado:** el artifact `ms-rabbit-admin-jar`, con `ms-rabbit-admin-0.0.1-SNAPSHOT.jar`. Se guarda 7 días.
+
+**Estos dos no tienen deploy en GitHub Actions.** En la nube los levanta la EC2 con `docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d --build` (`infra/ec2-rabbitmq.tf`), que construye las imágenes en la propia máquina a partir de la rama `rama_repo`. Los builds de CI aseguran que esa construcción no va a fallar.
 
 ### Reglas comunes
 - **Credenciales:** solo por *secrets*. Los ids van solo en *variables* del repositorio (`vars.*`); no hay nada escrito a mano en los workflows.
@@ -82,6 +98,7 @@ Son los valores actuales, sacados de `terraform -chdir="infra" output`. No son s
 | `ECR_REPOSITORY` | `agenda-belleza-backend` | nombre del repositorio en `ecr_repositorio` (sin el registro; el registro lo entrega `amazon-ecr-login`) |
 | `ECS_CLUSTER` | `agenda-belleza` | output `ecs_cluster` |
 | `ECS_SERVICE` | `agenda-belleza-backend` | output `ecs_servicio` |
+| `ECS_TASK_FAMILY` | `agenda-belleza-backend` | output `ecs_task_family` |
 | `API_ID` | `dukv1s21ak` | id del API Gateway (aparece en `url_datos`) |
 | `INTEGRACION_RESERVAS_ID` | `2qnc4m8` | output `integracion_reservas_id` |
 | `INTEGRACION_APROBACIONES_ID` | `qyeelje` | output `integracion_aprobaciones_id` |
@@ -97,6 +114,7 @@ $repo = "katherinecuestas/agenda-belleza-cloud-native"
 gh variable set AMPLIFY_APP_ID              -R $repo --body (terraform -chdir="infra" output -raw amplify_app_id)
 gh variable set ECS_CLUSTER                 -R $repo --body (terraform -chdir="infra" output -raw ecs_cluster)
 gh variable set ECS_SERVICE                 -R $repo --body (terraform -chdir="infra" output -raw ecs_servicio)
+gh variable set ECS_TASK_FAMILY             -R $repo --body (terraform -chdir="infra" output -raw ecs_task_family)
 gh variable set INTEGRACION_RESERVAS_ID     -R $repo --body (terraform -chdir="infra" output -raw integracion_reservas_id)
 gh variable set INTEGRACION_APROBACIONES_ID -R $repo --body (terraform -chdir="infra" output -raw integracion_aprobaciones_id)
 gh variable set ECR_REPOSITORY              -R $repo --body "agenda-belleza-backend"

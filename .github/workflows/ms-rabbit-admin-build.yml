@@ -1,0 +1,68 @@
+name: "MS Rabbit Admin · Build"
+
+# Compila, prueba y construye la imagen de ms-rabbit-admin (API REST para administrar RabbitMQ).
+# No hay deploy aquí: en la nube lo levanta la EC2 con docker compose (infra/ec2-rabbitmq.tf).
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "ms-rabbit-admin/**"
+      - ".github/workflows/ms-rabbit-admin-build.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "ms-rabbit-admin/**"
+      - ".github/workflows/ms-rabbit-admin-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Un build nuevo de la misma rama cancela el anterior: solo interesa el último
+concurrency:
+  group: ms-rabbit-admin-build-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+    working-directory: ms-rabbit-admin
+
+jobs:
+  build:
+    name: Tests, jar e imagen
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Instalar Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: ms-rabbit-admin/pom.xml
+
+      # Desde Windows, git puede no guardar el permiso de ejecución
+      - name: Permiso de ejecución para mvnw
+        run: chmod +x mvnw
+
+      # Los tests no necesitan RabbitMQ ni Cognito: el token se simula con jwt() y el 503
+      # se prueba contra un puerto sin broker
+      - name: Compilar, probar y empaquetar
+        run: ./mvnw -B verify
+
+      - name: Subir el jar como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ms-rabbit-admin-jar
+          path: ms-rabbit-admin/target/ms-rabbit-admin-0.0.1-SNAPSHOT.jar
+          if-no-files-found: error
+          retention-days: 7
+
+      # Solo comprueba que el Dockerfile multi-stage funciona: no se publica la imagen
+      - name: Construir la imagen Docker (sin push)
+        run: docker build -t agenda-belleza/ms-rabbit-admin:ci-${GITHUB_SHA::12} .

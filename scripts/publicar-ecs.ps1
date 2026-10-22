@@ -36,6 +36,8 @@ try {
     Confirmar-Exito "terraform output integracion_reservas_id"
     $IntegracionAprobaciones = terraform -chdir="infra" output -raw integracion_aprobaciones_id
     Confirmar-Exito "terraform output integracion_aprobaciones_id"
+    $FamiliaTarea = terraform -chdir="infra" output -raw ecs_task_family
+    Confirmar-Exito "terraform output ecs_task_family"
 
     $Imagen   = "${Repositorio}:${Tag}"
     $Registro = $Repositorio.Split("/")[0]
@@ -67,8 +69,11 @@ try {
     Confirmar-Exito "docker push"
 
     # ------------------------------------------------------------------
-    Write-Host "[6/10] Forzando un despliegue nuevo en ECS..." -ForegroundColor Cyan
+    Write-Host "[6/10] Forzando un despliegue nuevo en ECS (task definition $FamiliaTarea, última revisión)..." -ForegroundColor Cyan
+    # --task-definition con la FAMILIA sin número de revisión: ECS usa la última revisión ACTIVE.
+    # Sin esto, el servicio seguiría con la revisión vieja (Terraform ignora task_definition en el servicio).
     $Despliegue = aws ecs update-service --region $Region --cluster $Cluster --service $Servicio `
+        --task-definition $FamiliaTarea `
         --force-new-deployment --query "service.deployments[0].id" --output text
     Confirmar-Exito "aws ecs update-service"
     Write-Host "       Despliegue: $Despliegue"
