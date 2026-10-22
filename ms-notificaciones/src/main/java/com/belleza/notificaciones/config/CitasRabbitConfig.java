@@ -31,6 +31,18 @@ import org.springframework.context.annotation.Configuration;
  *
  * Todo es durable (exchanges, colas) y los mensajes llegan persistentes: sobrevive a un reinicio.
  *
+ * Las 6 colas son QUORUM (guía 2.3.1): cada una se replica en los 3 nodos del cluster (Raft)
+ * y sigue funcionando mientras haya mayoría (2 de 3). Todos los argumentos que ya usábamos
+ * son compatibles con quorum en RabbitMQ 4:
+ *  - x-dead-letter-exchange / x-dead-letter-routing-key: sí. Con la estrategia por defecto
+ *    (at-most-once) el reenvío a la DLX no se confirma: si la DLQ no está disponible en ese
+ *    instante, ese mensaje se pierde. (at-least-once exigiría x-overflow=reject-publish, y
+ *    entonces un desborde rechaza al productor en vez de ir a la DLQ.)
+ *  - x-message-ttl: sí (desde RabbitMQ 3.10).
+ *  - x-max-length: sí, con el desborde por defecto drop-head (el más antiguo va a la DLQ).
+ * Además, una cola quorum trae x-delivery-limit=20 por defecto: un mensaje reencolado más de
+ * 20 veces se manda a la DLQ. Aquí casi no aplica, porque solo reencolamos al apagar.
+ *
  * OJO: los argumentos x-* de una cola no se pueden cambiar en caliente. Si una cola ya existe con
  * otros argumentos, RabbitMQ responde PRECONDITION_FAILED (406): hay que borrarla y dejar que se
  * vuelva a declarar.
@@ -92,6 +104,7 @@ public class CitasRabbitConfig {
 
     private Queue colaPrincipal(String nombre, String routingDlx) {
         return QueueBuilder.durable(nombre)
+                .quorum() // x-queue-type=quorum: replicada en los 3 nodos (guía 2.3.1)
                 .deadLetterExchange(dlx) // x-dead-letter-exchange
                 .deadLetterRoutingKey(routingDlx) // x-dead-letter-routing-key
                 .ttl(ttlColaMs) // x-message-ttl
@@ -103,17 +116,21 @@ public class CitasRabbitConfig {
 
     @Bean
     public Queue notificacionesDlq(@Value("${salon.mensajeria.dlq.notificaciones}") String nombre) {
-        return QueueBuilder.durable(nombre).ttl(ttlDlqMs).build();
+        return dlq(nombre);
     }
 
     @Bean
     public Queue comprobantesDlq(@Value("${salon.mensajeria.dlq.comprobantes}") String nombre) {
-        return QueueBuilder.durable(nombre).ttl(ttlDlqMs).build();
+        return dlq(nombre);
     }
 
     @Bean
     public Queue aprobacionesDlq(@Value("${salon.mensajeria.dlq.aprobaciones}") String nombre) {
-        return QueueBuilder.durable(nombre).ttl(ttlDlqMs).build();
+        return dlq(nombre);
+    }
+
+    private Queue dlq(String nombre) {
+        return QueueBuilder.durable(nombre).quorum().ttl(ttlDlqMs).build();
     }
 
     // ───────── Bindings ─────────

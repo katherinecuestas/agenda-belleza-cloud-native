@@ -8,8 +8,10 @@ spring:
     import: "optional:file:../rabbitmq/.env[.properties]"
 
   rabbitmq:
-    host: ${RABBITMQ_HOST:localhost}
-    port: ${RABBITMQ_PORT:5672}
+    # Los 3 nodos del cluster (guia 2.3.1). Si el nodo al que esta conectado se cae,
+    # Spring se reconecta a otro de la lista. random: reparte los clientes entre nodos.
+    addresses: ${RABBITMQ_ADDRESSES:localhost:5672,localhost:5673,localhost:5674}
+    address-shuffle-mode: random
     username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASS:guest}
     connection-timeout: 3s # si el broker no responde, la API contesta 503 rapido

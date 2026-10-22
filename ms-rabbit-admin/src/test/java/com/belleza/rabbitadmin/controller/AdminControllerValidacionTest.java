@@ -20,10 +20,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Validación de entrada y seguridad de la API, sin RabbitMQ ni Cognito:
  *  - jwt() simula un token ya validado (no llama a Cognito).
- *  - spring.rabbitmq.port=1: no hay broker ahí; sirve para probar el 503. Las validaciones
- *    fallan ANTES de llegar al servicio, así que nunca tocan el broker.
+ *  - spring.rabbitmq.addresses=localhost:1: no hay broker ahí; sirve para probar el 503.
+ *    (Con addresses, Spring ignora host/port: por eso se fija addresses y no port.)
+ *    Las validaciones fallan ANTES de llegar al servicio, así que nunca tocan el broker.
  */
-@SpringBootTest(properties = "spring.rabbitmq.port=1")
+@SpringBootTest(properties = "spring.rabbitmq.addresses=localhost:1")
 @AutoConfigureMockMvc
 class AdminControllerValidacionTest {
 

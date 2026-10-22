@@ -19,21 +19,21 @@ Puerto: **8081** (ms-reservas usa el 8080).
 
 ## Cómo probarlo
 
-1. **Levantar RabbitMQ** (necesita Docker Desktop encendido):
+1. **Levantar el cluster RabbitMQ de 3 nodos** (necesita Docker Desktop encendido; detalles en [rabbitmq/README.md](../rabbitmq/README.md)):
    ```powershell
    cd rabbitmq
-   Copy-Item .env.example .env   # solo la primera vez; cambia la clave
+   Copy-Item .env.example .env   # solo la primera vez; cambia la clave y la cookie
    docker compose up -d
-   docker compose ps             # espera STATUS "healthy"
+   docker compose ps             # espera los 3 nodos "healthy"
    ```
-   El panel queda en http://localhost:15672, con el usuario y la clave de `rabbitmq/.env`.
+   El panel queda en http://localhost:15672 (también en 15673 y 15674), con el usuario y la clave de `rabbitmq/.env`.
 
 2. **Arrancar el microservicio:**
    ```powershell
    cd ms-notificaciones
    .\mvnw.cmd spring-boot:run
    ```
-   En local, la conexión toma `RABBITMQ_USER` y `RABBITMQ_PASS` de `../rabbitmq/.env`. En otros entornos se usan las variables de entorno `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER` y `RABBITMQ_PASS`.
+   En local, la conexión toma `RABBITMQ_USER` y `RABBITMQ_PASS` de `../rabbitmq/.env` y se conecta a cualquiera de los 3 nodos (`localhost:5672,5673,5674`). En otros entornos se usan las variables de entorno `RABBITMQ_ADDRESSES` (lista `host:puerto` separada por comas), `RABBITMQ_USER` y `RABBITMQ_PASS`.
 
 3. **Enviar un saludo:**
    ```powershell
@@ -49,7 +49,7 @@ Puerto: **8081** (ms-reservas usa el 8080).
 
 4. **Ver la cola en el broker:**
    ```powershell
-   docker exec rabbitmq-salon rabbitmqctl list_queues name durable messages consumers
+   docker exec rabbitmq-salon-1 rabbitmqctl list_queues name type leader members online messages consumers
    ```
 
 ## Tests

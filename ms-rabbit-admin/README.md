@@ -68,7 +68,7 @@ Las colas y exchanges que usan ms-reservas y ms-notificaciones están listados e
 
 ## Cómo probarlo
 
-1. RabbitMQ local arriba (ver `rabbitmq/README` y `docker compose up -d`). En local, la conexión toma usuario y clave de `../rabbitmq/.env`.
+1. Cluster RabbitMQ local arriba (ver [rabbitmq/README.md](../rabbitmq/README.md) y `docker compose up -d`). En local, la conexión toma usuario y clave de `../rabbitmq/.env` y se conecta a cualquiera de los 3 nodos. Fuera de local, la lista de nodos va en `RABBITMQ_ADDRESSES`.
 2. Arrancar con seguridad (por defecto) y un **access token** de Cognito de una usuaria del grupo `aprobadores`:
    ```bash
    ./mvnw spring-boot:run

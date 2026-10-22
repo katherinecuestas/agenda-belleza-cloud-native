@@ -1,26 +1,68 @@
-# RabbitMQ local para el sistema de reservas de belleza (guía 2.1.2).
+# Cluster RabbitMQ de 3 nodos para el sistema de reservas de belleza (guía 2.3.1, RabbitMQ 4).
 # Uso:  cd rabbitmq ; docker compose up -d
-# Usuario y clave salen de rabbitmq/.env (copia .env.example y cambia la clave).
+# Usuario, clave y cookie salen de rabbitmq/.env (copia .env.example y cambia los valores).
+#
+# 3 nodos = mínimo para quórum: una cola quorum sigue funcionando con 2 de 3 nodos vivos.
+
+# Lo común a los 3 nodos (ancla YAML)
+x-nodo: &nodo
+  image: rabbitmq:4-management
+  environment:
+    # Usuario inicial: solo se crea la PRIMERA vez (volúmenes vacíos); el cluster lo comparte
+    RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?Falta RABBITMQ_USER en rabbitmq/.env}
+    RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:?Falta RABBITMQ_PASS en rabbitmq/.env}
+    # Misma cookie de Erlang en los 3: sin ella los nodos no se reconocen entre sí
+    RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_COOKIE:?Falta RABBITMQ_COOKIE en rabbitmq/.env}
+  volumes:
+    - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+  networks:
+    - rabbitmq_cluster
+  healthcheck:
+    test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+    interval: 10s
+    timeout: 10s
+    retries: 10
+    start_period: 30s
+  restart: unless-stopped
+
 services:
-  rabbitmq:
-    image: rabbitmq:4-management
-    container_name: rabbitmq-salon # "rabbitmq" ya lo usa otro proyecto en esta máquina
+  rabbitmq-1:
+    <<: *nodo
+    hostname: rabbitmq-1 # nombre del nodo: rabbit@rabbitmq-1 (debe calzar con rabbitmq.conf)
+    container_name: rabbitmq-salon-1 # "rabbitmq" ya lo usa otro proyecto en esta máquina
     ports:
-      - "5672:5672"   # AMQP: aquí se conectan los microservicios
+      - "5672:5672" # AMQP
       - "15672:15672" # panel web: http://localhost:15672
-    environment:
-      # Solo se aplican la PRIMERA vez que se crea el volumen
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?Falta RABBITMQ_USER en rabbitmq/.env}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:?Falta RABBITMQ_PASS en rabbitmq/.env}
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq # colas y mensajes durables sobreviven a un reinicio
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 20s
-    restart: unless-stopped
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - rabbitmq_1_data:/var/lib/rabbitmq
+
+  rabbitmq-2:
+    <<: *nodo
+    hostname: rabbitmq-2
+    container_name: rabbitmq-salon-2
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    volumes:
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - rabbitmq_2_data:/var/lib/rabbitmq
+
+  rabbitmq-3:
+    <<: *nodo
+    hostname: rabbitmq-3
+    container_name: rabbitmq-salon-3
+    ports:
+      - "5674:5672"
+      - "15674:15672"
+    volumes:
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - rabbitmq_3_data:/var/lib/rabbitmq
+
+networks:
+  rabbitmq_cluster:
 
 volumes:
-  rabbitmq_data:
+  rabbitmq_1_data:
+  rabbitmq_2_data:
+  rabbitmq_3_data:
