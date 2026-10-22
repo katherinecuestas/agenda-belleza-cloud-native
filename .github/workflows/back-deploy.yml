@@ -103,8 +103,12 @@ jobs:
         env:
           ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
           ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+          ECS_TASK_FAMILY: ${{ vars.ECS_TASK_FAMILY }}
         run: |
+          # Familia sin número de revisión: ECS usa la última revisión ACTIVE de la task definition.
+          # Sin esto, el servicio seguiría con la revisión vieja (Terraform ignora task_definition en el servicio).
           DESPLIEGUE=$(aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
+            --task-definition "$ECS_TASK_FAMILY" \
             --force-new-deployment --query 'service.deployments[0].id' --output text)
           echo "Despliegue: $DESPLIEGUE"
 

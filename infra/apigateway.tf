@@ -93,3 +93,30 @@ resource "aws_apigatewayv2_route" "aprobaciones" {
 output "integracion_aprobaciones_id" {
   value = aws_apigatewayv2_integration.aprobaciones.id
 }
+
+# ms-rabbit-admin en la EC2 (ec2-rabbitmq.tf). La EIP es fija: no hace falta ignore_changes
+# ni reapuntar la integración en cada despliegue, como con la task de ECS.
+resource "aws_apigatewayv2_integration" "rabbit_admin" {
+  api_id                 = aws_apigatewayv2_api.api_manager.id
+  integration_type       = "HTTP_PROXY"
+  integration_method     = "ANY"
+  integration_uri        = "http://${aws_eip.rabbitmq.public_ip}:8082/v1/admin/{proxy}"
+  payload_format_version = "1.0"
+}
+
+# Doble control: el Gateway exige el scope reservas/aprobaciones y ms-rabbit-admin
+# vuelve a validar el JWT y exige el rol APROBADORES.
+resource "aws_apigatewayv2_route" "rabbit_admin" {
+  for_each = toset(["GET", "POST", "DELETE"])
+
+  api_id               = aws_apigatewayv2_api.api_manager.id
+  route_key            = "${each.value} /v1/admin/{proxy+}"
+  target               = "integrations/${aws_apigatewayv2_integration.rabbit_admin.id}"
+  authorization_type   = "JWT"
+  authorizer_id        = aws_apigatewayv2_authorizer.cognito.id
+  authorization_scopes = ["${aws_cognito_resource_server.reservas.identifier}/aprobaciones"]
+}
+
+output "url_rabbit_admin" {
+  value = "${aws_apigatewayv2_api.api_manager.api_endpoint}/v1/admin"
+}
