@@ -2,48 +2,50 @@ spring:
   application:
     name: ms-notificaciones
 
-  # En local, usuario y clave salen del mismo .env que usa docker compose.
-  # optional: si el archivo no existe (CI, ECS), no falla y se usan las variables de entorno.
+  # En local, usuario y clave salen de rabbitmq/.env (el mismo que usa docker compose)
   config:
     import: "optional:file:../rabbitmq/.env[.properties]"
 
   rabbitmq:
-    # Los 3 nodos del cluster (guia 2.3.1). Si el nodo al que esta conectado se cae,
-    # Spring se reconecta a otro de la lista. random: reparte los clientes entre nodos.
+    # Conexión
+    # addresses - los 3 nodos del cluster (en la guía: host: localhost y port: 5672)
+    #   localhost - RabbitMQ está en tu máquina local
+    #   5672, 5673, 5674 - Puerto AMQP estándar de cada nodo
     addresses: ${RABBITMQ_ADDRESSES:localhost:5672,localhost:5673,localhost:5674}
+    # random - se conecta a un nodo al azar; si ese nodo se cae, usa otro
     address-shuffle-mode: random
+    # username/password - Credenciales
     username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASS:guest}
+    # virtual-host: / - Virtual host por defecto (no se indica)
 
 server:
   port: 8081
 
-# Nombres de colas y exchanges: SOLO aquí. Las clases los leen con ${...}.
+# Nombres de exchanges, colas y routing keys del salón
 salon:
   mensajeria:
     exchange:
-      citas: salon.citas.directo # DIRECT (guia 2.1.3), mismo nombre que declara ms-reservas
-      eventos: salon.citas.eventos # TOPIC (guia 2.2.1), mismo nombre que declara ms-reservas
+      citas: salon.citas.directo # exchange DIRECT
+      eventos: salon.citas.eventos # exchange TOPIC
     colas:
-      saludos: salon.saludos # guia 2.1.2
-      notificaciones: salon.notificaciones # TOPIC "cita.*": todo lo que le pasa a la cita
-      aprobaciones: salon.aprobaciones # DIRECT "cita.creada": citas nuevas por revisar
-      comprobantes: salon.comprobantes # TOPIC "cita.aprobada": comprobante de la reserva
+      saludos: salon.saludos # cola del Hello World
+      notificaciones: salon.notificaciones # recibe todos los eventos de cita
+      aprobaciones: salon.aprobaciones # recibe solo cita.creada
+      comprobantes: salon.comprobantes # recibe solo cita.aprobada
     routing:
       creada: cita.creada
       aprobada: cita.aprobada
       rechazada: cita.rechazada
       cancelada: cita.cancelada
     patrones:
-      todas-las-citas: "cita.*" # * = exactamente una palabra
+      todas-las-citas: "cita.*" # * = una palabra
     idempotencia:
-      max-ids-por-cola: 10000
+      max-ids-por-cola: 10000 # eventoId recordados por cola, para ignorar repetidos
 
-    # ───── Dead letters (guias 2.2.2 y 2.2.3) ─────
-    # Lo que una cola principal rechaza (nack sin reencolar), vence (TTL) o desborda
-    # (max-length) se reenvia al DLX con la routing key de esa cola, y cae en su DLQ.
+    # DLX y DLQ: a donde van los mensajes rechazados, vencidos o desbordados
     dlx:
-      exchange: salon.citas.dlx # DIRECT, durable
+      exchange: salon.citas.dlx
       routing:
         notificaciones: notificaciones
         comprobantes: comprobantes
@@ -52,14 +54,16 @@ salon:
       notificaciones: salon.notificaciones.dlq
       comprobantes: salon.comprobantes.dlq
       aprobaciones: salon.aprobaciones.dlq
-      ttl-ms: 86400000 # 24 h: tiempo para revisar el fallo antes de que se descarte
-    limites: # colas principales
-      ttl-ms: 300000 # 5 min sin consumirse -> DLQ (motivo "expired")
-      max-length: 1000 # al pasar de 1000, el mas antiguo -> DLQ (motivo "maxlen")
-    reintentos: # solo para errores TRANSITORIOS
-      max-reintentos: 3 # despues del primer intento: esperas de 1 s, 2 s y 4 s
-      intervalo-inicial-ms: 1000
-      multiplicador: 2.0
+      ttl-ms: 86400000 # la DLQ guarda cada mensaje 24 h
+    limites:
+      ttl-ms: 300000 # un mensaje espera como máximo 5 min en la cola
+      max-length: 1000 # máximo de mensajes en la cola
+
+    # Retry
+    reintentos:
+      max-reintentos: 3 # Reintentos
+      intervalo-inicial-ms: 1000 # initial-interval
+      multiplicador: 2.0 # multiplier
 
 management:
   endpoints:

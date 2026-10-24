@@ -13,26 +13,16 @@ import java.io.IOException;
 import java.util.function.Consumer;
 
 /**
- * Flujo común de los consumidores de citas con ACK manual (guías 2.2.1 a 2.2.3).
+ * Confirmación manual (manual acks) que comparten los consumidores de citas
  *
- * Tabla de decisiones (el consumidor SIEMPRE responde con ACK o NACK; nunca deja el mensaje colgado):
+ * - Éxito: basicAck()
+ * - Error transitorio: reintenta con backoff (1 s, 2 s, 4 s); si se agotan, basicNack() a la DLQ
+ * - Error permanente: basicNack() a la DLQ, sin reintentar
+ * - Mensaje repetido (mismo eventoId): basicAck() sin procesarlo de nuevo
  *
- * | Situación                          | Qué se hace                                  | Resultado         |
- * |------------------------------------|----------------------------------------------|-------------------|
- * | eventoId ya procesado en esta cola | no se reprocesa                              | basicAck          |
- * | procesado sin error                | se marca el eventoId                         | basicAck          |
- * | ErrorTransitorio (recuperable)     | reintento con backoff 1 s, 2 s, 4 s          | si se recupera: basicAck |
- * |   ... y se agotan los reintentos   | log.warn                                     | basicNack → DLQ   |
- * | ErrorPermanente / datos inválidos  | log.warn, sin reintentar                     | basicNack → DLQ   |
- * | error inesperado (bug)             | log.error, se trata como permanente          | basicNack → DLQ   |
- * | hilo interrumpido (apagado)        | no es culpa del mensaje                      | basicNack reencolando |
- *
- * basicNack(tag, false, false): multiple=false (solo este mensaje), requeue=false. Sin reencolar,
- * RabbitMQ lo manda al x-dead-letter-exchange de la cola: el mensaje no se pierde, queda en la
- * DLQ con el header x-death (motivo "rejected").
- *
- * Por qué no reencolar (requeue=true) ante un error: el mensaje volvería al frente de la cola y
- * fallaría de nuevo al instante, en un bucle infinito que bloquea a los demás (prefetch 1).
+ * Basado en:
+ * https://www.rabbitmq.com/tutorials/tutorial-one-spring-amqp
+ * https://docs.spring.io/spring-amqp/reference/
  */
 @Component
 public class ConsumoConAck {
@@ -56,47 +46,70 @@ public class ConsumoConAck {
         this.multiplicador = multiplicador;
     }
 
+    /**
+     * Procesa un mensaje y lo confirma o lo rechaza
+     *
+     * Parámetros:
+     * - cola: nombre de la cola que recibió el mensaje
+     * - evento: el mensaje ya deserializado
+     * - simularFallo: header opcional para la demo de errores
+     * - channel: Acceso al canal AMQP para confirmación manual (manual acks)
+     * - tag: identifica el mensaje en basicAck() / basicNack()
+     * - accion: Aquí va tu lógica de procesamiento del mensaje
+     */
     public void procesar(String cola, CitaEvento evento, String simularFallo, Channel channel, long tag,
             Consumer<CitaEvento> accion) throws IOException {
-        // 1. Idempotencia: at-least-once puede entregar dos veces el mismo evento
+        // Idempotencia: si este eventoId ya se procesó en esta cola, no se procesa de nuevo
         if (evento.eventoId() != null && registro.yaProcesado(cola, evento.eventoId())) {
             log.info("[{}] duplicado ignorado eventoId={} cita={}", cola, evento.eventoId(), evento.citaId());
+            // Confirmación manual del mensaje (si usas manual acks)
+            // basicAck(): Confirma que el mensaje fue procesado exitosamente
             channel.basicAck(tag, false);
             return;
         }
 
         try {
             validar(evento);
+            // Si lanzas una excepción, Spring AMQP reintentará el mensaje
+            // según la configuración de retry
+            // (aquí el retry lo hace ejecutarConReintentos, con salon.mensajeria.reintentos)
             ejecutarConReintentos(cola, evento, simularFallo, accion);
             registro.marcarProcesado(cola, evento.eventoId());
+            // Confirmación manual del mensaje (si usas manual acks)
+            // basicAck(): Confirma que el mensaje fue procesado exitosamente
             channel.basicAck(tag, false);
 
         } catch (ErrorTransitorio e) {
-            // Solo llega aquí si ya se agotaron los reintentos
             log.warn("[{}] agotados {} reintentos eventoId={} cita={}: {} -> NACK sin reencolar, va a la DLQ",
                     cola, maxReintentos, evento.eventoId(), evento.citaId(), e.getMessage());
+            // basicNack(): Rechaza el mensaje
+            // requeue=false: no vuelve a la cola, va a la DLQ
             channel.basicNack(tag, false, false);
 
         } catch (ErrorPermanente e) {
             log.warn("[{}] error permanente eventoId={} cita={}: {} -> NACK sin reintentar, va a la DLQ",
                     cola, evento.eventoId(), evento.citaId(), e.getMessage());
+            // basicNack(): Rechaza el mensaje
+            // requeue=false: no vuelve a la cola, va a la DLQ
             channel.basicNack(tag, false, false);
 
         } catch (ProcesamientoInterrumpido e) {
-            // El microservicio se está apagando: el mensaje no tiene la culpa, vuelve a la cola
             log.warn("[{}] procesamiento interrumpido eventoId={} -> NACK reencolando",
                     cola, evento.eventoId());
+            // Rechazar el mensaje y requearlo (si usas manual acks)
+            // basicNack(): Rechaza el mensaje y lo devuelve a la cola
             channel.basicNack(tag, false, true);
 
         } catch (RuntimeException e) {
-            // Error no clasificado (normalmente un bug): reintentar no lo arregla, se trata como permanente
             log.error("[{}] error inesperado eventoId={} cita={}: {} -> NACK sin reencolar, va a la DLQ",
                     cola, evento.eventoId(), evento.citaId(), e.toString(), e);
+            // basicNack(): Rechaza el mensaje
+            // requeue=false: no vuelve a la cola, va a la DLQ
             channel.basicNack(tag, false, false);
         }
     }
 
-    /** Un evento sin estos datos no se puede procesar nunca: es un error permanente. */
+    /** Un mensaje sin eventoId, citaId o tipo es un error permanente */
     private void validar(CitaEvento evento) {
         if (evento.eventoId() == null || evento.citaId() == null || evento.tipo() == null) {
             throw new ErrorPermanente("datos invalidos: faltan eventoId, citaId o tipo");
@@ -104,10 +117,11 @@ public class ConsumoConAck {
     }
 
     /**
-     * Primer intento + hasta maxReintentos reintentos SOLO ante ErrorTransitorio.
-     * Esperas: intervaloInicial, x multiplicador, ... (1 s, 2 s, 4 s con la configuración actual).
-     * Se reintenta aquí, en el mismo consumidor: el mensaje sigue sin ACK y, con prefetch 1,
-     * nadie más lo toma mientras tanto.
+     * Reintentos con backoff, solo ante ErrorTransitorio
+     *
+     * - intervalo-inicial-ms: 1000  # primera espera
+     * - multiplicador: 2.0          # cada espera es el doble de la anterior
+     * - max-reintentos: 3           # esperas de 1 s, 2 s y 4 s
      */
     private void ejecutarConReintentos(String cola, CitaEvento evento, String simularFallo,
             Consumer<CitaEvento> accion) {
@@ -133,6 +147,7 @@ public class ConsumoConAck {
         }
     }
 
+    /** Espera entre reintentos */
     private static void dormir(long ms) {
         try {
             Thread.sleep(ms);
@@ -142,7 +157,7 @@ public class ConsumoConAck {
         }
     }
 
-    /** El hilo se interrumpió durante la espera de un reintento (apagado del microservicio). */
+    /** El microservicio se está apagando durante la espera de un reintento */
     private static final class ProcesamientoInterrumpido extends RuntimeException {
     }
 }
