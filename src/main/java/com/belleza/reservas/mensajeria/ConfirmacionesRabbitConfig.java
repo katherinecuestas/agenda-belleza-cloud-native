@@ -9,16 +9,24 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Publisher confirms y returns (guía 2.2.1). Es la mitad broker → productor:
- *  - ConfirmCallback: el broker aceptó (ack) o no (nack) el mensaje.
- *  - ReturnsCallback: el broker lo aceptó, pero ninguna cola coincidía con la routing key.
- * Requiere publisher-confirm-type=correlated, publisher-returns=true y template.mandatory=true.
+ * Configuración de RabbitMQ
+ *
+ * Publisher confirms: el broker avisa si recibió cada mensaje enviado
+ *
+ * Basada en:
+ * https://www.rabbitmq.com/tutorials/tutorial-one-spring-amqp
+ * https://docs.spring.io/spring-amqp/reference/
  */
 @Configuration
 public class ConfirmacionesRabbitConfig {
 
     private static final Logger log = LoggerFactory.getLogger(ConfirmacionesRabbitConfig.class);
 
+    /**
+     * Agrega al RabbitTemplate los avisos del broker:
+     * - ConfirmCallback: el broker aceptó (ack) o rechazó (nack) el mensaje
+     * - ReturnsCallback: el mensaje no llegó a ninguna cola
+     */
     @Bean
     public RabbitTemplateCustomizer confirmacionesCustomizer() {
         return template -> {
@@ -27,6 +35,7 @@ public class ConfirmacionesRabbitConfig {
         };
     }
 
+    /** Registra en el log si el broker aceptó o rechazó el mensaje */
     private static void alConfirmar(CorrelationData correlacion, boolean ack, String causa) {
         String eventoId = correlacion != null ? correlacion.getId() : "desconocido";
         String destino = correlacion instanceof CorrelacionEvento c
@@ -39,6 +48,7 @@ public class ConfirmacionesRabbitConfig {
         }
     }
 
+    /** Registra en el log un mensaje que no llegó a ninguna cola */
     private static void alDevolver(ReturnedMessage devuelto) {
         log.warn("Mensaje sin cola de destino routingKey={} exchange={} eventoId={}: {}",
                 devuelto.getRoutingKey(), devuelto.getExchange(),

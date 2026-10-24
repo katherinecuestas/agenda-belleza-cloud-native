@@ -17,17 +17,14 @@ import org.springframework.stereotype.Service;
 import java.util.function.Supplier;
 
 /**
- * Toda la interacción con RabbitMQ pasa por aquí (guía 2.3.1). El controller no conoce
- * RabbitAdmin, ni los tipos de Spring AMQP, ni los códigos del protocolo.
+ * Servicio que administra RabbitMQ con RabbitAdmin
  *
- * Errores del broker → excepciones propias:
- *  - sin conexión                         → BrokerNoDisponibleException (503)
- *  - 404 NOT_FOUND                        → RecursoNoEncontradoException (404)
- *  - 406 PRECONDITION_FAILED, 405 LOCKED  → ConflictoException (409)
- *  - otro código del broker (ej. 540)     → ErrorBrokerException (502)
- *
- * Declarar es idempotente: crear algo que ya existe con la MISMA configuración no falla.
- * Si existe con OTRA configuración, RabbitMQ responde PRECONDITION_FAILED → 409.
+ * Crea, consulta y borra colas, exchanges y bindings.
+ * Si RabbitMQ responde con error, lo convierte en un error claro:
+ * - RabbitMQ apagado -> 503
+ * - no existe -> 404
+ * - ya existe con otra configuración, protegido o con mensajes -> 409
+ * - otro rechazo de RabbitMQ -> 502
  */
 @Service
 public class RabbitAdminService {
@@ -44,8 +41,10 @@ public class RabbitAdminService {
         this.propiedades = propiedades;
     }
 
-    // ───────────── Colas ─────────────
-
+    /**
+     * Crea una cola con su tipo, durable, DLX, TTL y largo máximo.
+     * Es idempotente: si ya existe igual, la reutiliza
+     */
     public ColaInfoResponse crearCola(CrearColaRequest req) {
         QueueBuilder builder = req.durable()
                 ? QueueBuilder.durable(req.nombre())
@@ -71,6 +70,7 @@ public class RabbitAdminService {
         return infoCola(req.nombre());
     }
 
+    /** Devuelve los mensajes y consumidores de una cola */
     public ColaInfoResponse infoCola(String nombre) {
         QueueInformation info = ejecutar("consultar la cola '" + nombre + "'", () -> admin.getQueueInfo(nombre));
         if (info == null) {
@@ -79,13 +79,7 @@ public class RabbitAdminService {
         return new ColaInfoResponse(info.getName(), info.getMessageCount(), info.getConsumerCount());
     }
 
-    /**
-     * @param soloSiVacia si es true y la cola tiene mensajes, no se borra (409)
-     *
-     * "Solo si está vacía" se comprueba aquí y NO con el flag if-empty de AMQP: las colas
-     * QUORUM no lo soportan (RabbitMQ responde 540 NOT_IMPLEMENTED y cierra la conexión).
-     * Limitación: si llega un mensaje justo entre la comprobación y el borrado, se pierde.
-     */
+    /** Borra una cola; con soloSiVacia=true no la borra si tiene mensajes */
     public void eliminarCola(String nombre, boolean soloSiVacia) {
         exigirNoProtegido(nombre, "borrar");
         ColaInfoResponse info = infoCola(nombre);
@@ -96,15 +90,14 @@ public class RabbitAdminService {
         ejecutar("borrar la cola '" + nombre + "'", () -> admin.deleteQueue(nombre));
     }
 
-    /** @return cuántos mensajes se eliminaron */
+    /** Vacía una cola y devuelve cuántos mensajes borró */
     public PurgaResponse purgarCola(String nombre) {
-        infoCola(nombre); // 404 si no existe
+        infoCola(nombre);
         int eliminados = ejecutar("vaciar la cola '" + nombre + "'", () -> admin.purgeQueue(nombre));
         return new PurgaResponse(nombre, eliminados);
     }
 
-    // ───────────── Exchanges ─────────────
-
+    /** Crea un exchange DIRECT, TOPIC, FANOUT o HEADERS */
     public ExchangeResponse crearExchange(CrearExchangeRequest req) {
         boolean durable = req.durable();
         Exchange exchange = switch (req.tipo()) {
@@ -120,16 +113,15 @@ public class RabbitAdminService {
         return new ExchangeResponse(req.nombre(), req.tipo(), durable);
     }
 
+    /** Borra un exchange (no los protegidos del salón) */
     public void eliminarExchange(String nombre) {
         exigirNoProtegido(nombre, "borrar");
         exigirExchange(nombre);
         ejecutar("borrar el exchange '" + nombre + "'", () -> admin.deleteExchange(nombre));
     }
 
-    // ───────────── Bindings ─────────────
-
+    /** Enlaza un exchange con una cola usando una routing key */
     public BindingRequest crearBinding(BindingRequest req) {
-        // Se comprueban antes para responder 404 con un mensaje que diga CUÁL falta
         exigirExchange(req.exchange());
         infoCola(req.cola());
         ejecutar("enlazar '" + req.exchange() + "' con '" + req.cola() + "'",
@@ -140,7 +132,7 @@ public class RabbitAdminService {
         return req;
     }
 
-    /** Idempotente: quitar un binding que no existe no es error (así responde RabbitMQ). */
+    /** Quita el enlace entre un exchange y una cola */
     public void eliminarBinding(BindingRequest req) {
         exigirNoProtegido(req.exchange(), "quitar bindings de");
         exigirNoProtegido(req.cola(), "quitar bindings de");
@@ -153,12 +145,12 @@ public class RabbitAdminService {
                 });
     }
 
-    // ───────────── Auxiliares ─────────────
-
+    /** Arma el binding exchange -> cola */
     private static Binding binding(BindingRequest req) {
         return new Binding(req.cola(), Binding.DestinationType.QUEUE, req.exchange(), req.routingKey(), null);
     }
 
+    /** Impide tocar las colas y exchanges que usa el sistema de reservas */
     private void exigirNoProtegido(String nombre, String accion) {
         if (propiedades.esProtegido(nombre)) {
             throw new ConflictoException("'" + nombre + "' es un recurso protegido del sistema de reservas: "
@@ -166,7 +158,7 @@ public class RabbitAdminService {
         }
     }
 
-    /** RabbitAdmin no trae "existe el exchange?": se usa una declaración pasiva (no crea nada). */
+    /** Comprueba que el exchange exista (404 si no existe) */
     private void exigirExchange(String nombre) {
         try {
             admin.getRabbitTemplate().execute(canal -> canal.exchangeDeclarePassive(nombre));
@@ -181,7 +173,7 @@ public class RabbitAdminService {
         }
     }
 
-    /** Ejecuta una operación del broker y traduce sus errores a excepciones propias. */
+    /** Ejecuta una operación en RabbitMQ y convierte sus errores en errores claros */
     private <T> T ejecutar(String accion, Supplier<T> operacion) {
         try {
             return operacion.get();
@@ -197,17 +189,13 @@ public class RabbitAdminService {
                         "No se pudo " + accion + ": " + cierre.texto());
                 case AMQP_PRECONDITION_FAILED, AMQP_RESOURCE_LOCKED -> throw new ConflictoException(
                         "No se pudo " + accion + ": " + cierre.texto());
-                // Cualquier otro rechazo del broker (por ejemplo 540 NOT_IMPLEMENTED): 502 con su texto
                 default -> throw new ErrorBrokerException(
                         "RabbitMQ rechazó la operación (no se pudo " + accion + "): " + cierre.texto(), e);
             }
         }
     }
 
-    /**
-     * El broker rechaza una operación cerrando el canal (404, 406...) o, en errores graves
-     * como 540 NOT_IMPLEMENTED, la conexión entera. Ambos traen código y texto explicativo.
-     */
+    /** Código y texto del error que devuelve RabbitMQ (por ejemplo 404 o 406) */
     private record CierreCanal(int codigo, String texto) {
 
         static CierreCanal de(Throwable error) {

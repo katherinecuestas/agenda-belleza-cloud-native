@@ -7,16 +7,29 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Declara las colas del microservicio. RabbitAdmin las crea en el broker al
- * abrir la primera conexión, si todavía no existen.
+ * Configuración de RabbitMQ
+ *
+ * Basada en:
+ * https://www.rabbitmq.com/tutorials/tutorial-one-spring-amqp
+ * https://docs.spring.io/spring-amqp/reference/
  */
 @Configuration
 public class RabbitConfig {
 
-    /** Cola simple de la guía 2.1.2: se publica en ella por el exchange por defecto. */
+    /**
+     * Define la cola "salon.saludos"
+     *
+     * Esta cola es idempotente:
+     * - Si no existe, la crea
+     * - Si ya existe, la reutiliza
+     *
+     * durable=true: sobrevive si RabbitMQ se reinicia
+     * (En producción, normalmente usarías durable=true)
+     *
+     * quorum: replicada en los 3 nodos del cluster
+     */
     @Bean
     public Queue saludos(@Value("${salon.mensajeria.colas.saludos}") String nombre) {
-        // Quorum (guía 2.3.1): replicada en los 3 nodos; una quorum siempre es durable
         return QueueBuilder.durable(nombre).quorum().build();
     }
 }

@@ -15,7 +15,15 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 
-/** Avisa a la aprobadora que hay una cita nueva por revisar (DIRECT, solo cita.creada). */
+/**
+ * Consumidor (Receiver) - Recibe mensajes de la cola 'salon.aprobaciones'
+ *
+ * Avisa a la aprobadora que hay una cita nueva por revisar (solo cita.creada)
+ *
+ * Basado en:
+ * https://www.rabbitmq.com/tutorials/tutorial-one-spring-amqp
+ * https://docs.spring.io/spring-amqp/reference/
+ */
 @Component
 public class AvisoAprobadoraConsumidor {
 
@@ -30,6 +38,20 @@ public class AvisoAprobadoraConsumidor {
         this.cola = cola;
     }
 
+    /**
+     * Este método se ejecuta automáticamente cada vez que
+     * llega un mensaje a la cola 'salon.aprobaciones'
+     *
+     * La anotación @RabbitListener:
+     * - Registra este método como listener de mensajes
+     * - queues="salon.aprobaciones" especifica la cola a escuchar
+     *
+     * Parámetros:
+     * - evento: Spring AMQP deserializa automáticamente el mensaje
+     * - channel: Acceso al canal AMQP para confirmación manual (manual acks)
+     * - tag: identifica el mensaje en basicAck() / basicNack()
+     * - simularFallo: header opcional para la demo de errores
+     */
     @RabbitListener(queues = "${salon.mensajeria.colas.aprobaciones}",
             containerFactory = CitasRabbitConfig.FACTORY_CITAS)
     public void recibir(CitaEvento evento, Channel channel,

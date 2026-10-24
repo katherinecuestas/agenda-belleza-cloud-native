@@ -7,8 +7,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * API REST de administración de RabbitMQ. Solo valida la entrada (@Valid y @NombreRabbit)
- * y delega: no conoce RabbitAdmin ni nada del protocolo AMQP.
+ * REST Controller para administrar RabbitMQ
+ *
+ * Valida los datos (@Valid) y llama a RabbitAdminService
  */
 @RestController
 @RequestMapping("/v1/admin")
@@ -20,20 +21,20 @@ public class AdminController {
         this.servicio = servicio;
     }
 
-    // ───────────── Colas ─────────────
-
+    /** Crear una cola (201) */
     @PostMapping("/queues")
     @ResponseStatus(HttpStatus.CREATED)
     public ColaInfoResponse crearCola(@Valid @RequestBody CrearColaRequest req) {
         return servicio.crearCola(req);
     }
 
+    /** Ver una cola: mensajes y consumidores (200, o 404 si no existe) */
     @GetMapping("/queues/{nombre}")
     public ColaInfoResponse infoCola(@PathVariable @NombreRabbit String nombre) {
         return servicio.infoCola(nombre);
     }
 
-    /** Por seguridad, por defecto solo borra si la cola está vacía. */
+    /** Borrar una cola (204); por defecto solo si está vacía */
     @DeleteMapping("/queues/{nombre}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void eliminarCola(@PathVariable @NombreRabbit String nombre,
@@ -41,34 +42,34 @@ public class AdminController {
         servicio.eliminarCola(nombre, soloSiVacia);
     }
 
+    /** Vaciar una cola: borra sus mensajes (200 con la cantidad) */
     @PostMapping("/queues/{nombre}/purge")
     public PurgaResponse purgarCola(@PathVariable @NombreRabbit String nombre) {
         return servicio.purgarCola(nombre);
     }
 
-    // ───────────── Exchanges ─────────────
-
+    /** Crear un exchange (201) */
     @PostMapping("/exchanges")
     @ResponseStatus(HttpStatus.CREATED)
     public ExchangeResponse crearExchange(@Valid @RequestBody CrearExchangeRequest req) {
         return servicio.crearExchange(req);
     }
 
+    /** Borrar un exchange (204) */
     @DeleteMapping("/exchanges/{nombre}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void eliminarExchange(@PathVariable @NombreRabbit String nombre) {
         servicio.eliminarExchange(nombre);
     }
 
-    // ───────────── Bindings ─────────────
-
+    /** Enlazar un exchange con una cola (201) */
     @PostMapping("/bindings")
     @ResponseStatus(HttpStatus.CREATED)
     public BindingRequest crearBinding(@Valid @RequestBody BindingRequest req) {
         return servicio.crearBinding(req);
     }
 
-    /** El binding se identifica por exchange + cola + routingKey, por eso va en el body. */
+    /** Quitar un enlace (204); exchange, cola y routingKey van en el body */
     @DeleteMapping("/bindings")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void eliminarBinding(@Valid @RequestBody BindingRequest req) {

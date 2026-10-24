@@ -17,42 +17,18 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Topología de los eventos de citas.
+ * Configuración de RabbitMQ
  *
- * <pre>
- * salon.citas.eventos (TOPIC) ── "cita.*" ────────► salon.notificaciones ─┐
- *                             └─ "cita.aprobada" ─► salon.comprobantes ───┤ rechazado / vencido /
- * salon.citas.directo (DIRECT) ─ "cita.creada" ───► salon.aprobaciones ───┤ desbordado
- *                                                                         ▼
- *            salon.citas.dlx (DIRECT) ── "notificaciones" ─► salon.notificaciones.dlq
- *                                     ├─ "comprobantes" ───► salon.comprobantes.dlq
- *                                     └─ "aprobaciones" ───► salon.aprobaciones.dlq
- * </pre>
- *
- * Todo es durable (exchanges, colas) y los mensajes llegan persistentes: sobrevive a un reinicio.
- *
- * Las 6 colas son QUORUM (guía 2.3.1): cada una se replica en los 3 nodos del cluster (Raft)
- * y sigue funcionando mientras haya mayoría (2 de 3). Todos los argumentos que ya usábamos
- * son compatibles con quorum en RabbitMQ 4:
- *  - x-dead-letter-exchange / x-dead-letter-routing-key: sí. Con la estrategia por defecto
- *    (at-most-once) el reenvío a la DLX no se confirma: si la DLQ no está disponible en ese
- *    instante, ese mensaje se pierde. (at-least-once exigiría x-overflow=reject-publish, y
- *    entonces un desborde rechaza al productor en vez de ir a la DLQ.)
- *  - x-message-ttl: sí (desde RabbitMQ 3.10).
- *  - x-max-length: sí, con el desborde por defecto drop-head (el más antiguo va a la DLQ).
- * Además, una cola quorum trae x-delivery-limit=20 por defecto: un mensaje reencolado más de
- * 20 veces se manda a la DLQ. Aquí casi no aplica, porque solo reencolamos al apagar.
- *
- * OJO: los argumentos x-* de una cola no se pueden cambiar en caliente. Si una cola ya existe con
- * otros argumentos, RabbitMQ responde PRECONDITION_FAILED (406): hay que borrarla y dejar que se
- * vuelva a declarar.
+ * Basada en:
+ * https://www.rabbitmq.com/tutorials/tutorial-one-spring-amqp
+ * https://docs.spring.io/spring-amqp/reference/
  */
 @Configuration
 public class CitasRabbitConfig {
 
-    /** Nombre del container factory que usan los consumidores de citas. */
+    /** Container factory que usan los consumidores de citas */
     public static final String FACTORY_CITAS = "citasListenerFactory";
-    /** Nombre del container factory del consumidor de las DLQ (sin conversión JSON). */
+    /** Container factory que usa el consumidor de las DLQ */
     public static final String FACTORY_DLQ = "dlqListenerFactory";
 
     @Value("${salon.mensajeria.dlx.exchange}")
@@ -64,77 +40,173 @@ public class CitasRabbitConfig {
     @Value("${salon.mensajeria.dlq.ttl-ms}")
     private int ttlDlqMs;
 
-    // ───────── Exchanges (misma declaración que ms-reservas: durable, sin auto-delete) ─────────
-
+    /**
+     * Define el exchange "salon.citas.directo" (DIRECT)
+     *
+     * Exchange explícito (para casos más avanzados):
+     * la routing key debe coincidir exacta con la del binding
+     *
+     * durable=true: sobrevive si RabbitMQ se reinicia
+     * (En producción, normalmente usarías durable=true)
+     */
     @Bean
     public DirectExchange citasExchange(@Value("${salon.mensajeria.exchange.citas}") String nombre) {
         return new DirectExchange(nombre, true, false);
     }
 
+    /**
+     * Define el exchange "salon.citas.eventos" (TOPIC)
+     *
+     * Exchange explícito (para casos más avanzados):
+     * la routing key se compara con patrones, por ejemplo "cita.*"
+     *
+     * durable=true: sobrevive si RabbitMQ se reinicia
+     * (En producción, normalmente usarías durable=true)
+     */
     @Bean
     public TopicExchange eventosExchange(@Value("${salon.mensajeria.exchange.eventos}") String nombre) {
         return new TopicExchange(nombre, true, false);
     }
 
-    /** DLX: recibe lo que las colas principales no pudieron entregar. */
+    /**
+     * Define el exchange "salon.citas.dlx" (DIRECT)
+     *
+     * DLX: recibe los mensajes que las colas principales rechazan,
+     * vencen o desbordan, y los manda a su DLQ
+     *
+     * durable=true: sobrevive si RabbitMQ se reinicia
+     * (En producción, normalmente usarías durable=true)
+     */
     @Bean
     public DirectExchange deadLetterExchange() {
         return new DirectExchange(dlx, true, false);
     }
 
-    // ───────── Colas principales: durables, con DLX, TTL y largo máximo ─────────
-
+    /**
+     * Define la cola "salon.notificaciones"
+     *
+     * Esta cola es idempotente:
+     * - Si no existe, la crea
+     * - Si ya existe, la reutiliza
+     *
+     * durable=true: sobrevive si RabbitMQ se reinicia
+     * (En producción, normalmente usarías durable=true)
+     */
     @Bean
     public Queue notificacionesQueue(@Value("${salon.mensajeria.colas.notificaciones}") String nombre,
             @Value("${salon.mensajeria.dlx.routing.notificaciones}") String routingDlx) {
         return colaPrincipal(nombre, routingDlx);
     }
 
+    /**
+     * Define la cola "salon.comprobantes"
+     *
+     * Esta cola es idempotente:
+     * - Si no existe, la crea
+     * - Si ya existe, la reutiliza
+     *
+     * durable=true: sobrevive si RabbitMQ se reinicia
+     * (En producción, normalmente usarías durable=true)
+     */
     @Bean
     public Queue comprobantesQueue(@Value("${salon.mensajeria.colas.comprobantes}") String nombre,
             @Value("${salon.mensajeria.dlx.routing.comprobantes}") String routingDlx) {
         return colaPrincipal(nombre, routingDlx);
     }
 
+    /**
+     * Define la cola "salon.aprobaciones"
+     *
+     * Esta cola es idempotente:
+     * - Si no existe, la crea
+     * - Si ya existe, la reutiliza
+     *
+     * durable=true: sobrevive si RabbitMQ se reinicia
+     * (En producción, normalmente usarías durable=true)
+     */
     @Bean
     public Queue aprobacionesQueue(@Value("${salon.mensajeria.colas.aprobaciones}") String nombre,
             @Value("${salon.mensajeria.dlx.routing.aprobaciones}") String routingDlx) {
         return colaPrincipal(nombre, routingDlx);
     }
 
+    /**
+     * Arma una cola principal:
+     * - quorum: replicada en los 3 nodos del cluster
+     * - deadLetterExchange / deadLetterRoutingKey: a dónde va un mensaje rechazado
+     * - ttl: tiempo máximo que un mensaje espera en la cola
+     * - maxLength: cantidad máxima de mensajes en la cola
+     */
     private Queue colaPrincipal(String nombre, String routingDlx) {
         return QueueBuilder.durable(nombre)
-                .quorum() // x-queue-type=quorum: replicada en los 3 nodos (guía 2.3.1)
-                .deadLetterExchange(dlx) // x-dead-letter-exchange
-                .deadLetterRoutingKey(routingDlx) // x-dead-letter-routing-key
-                .ttl(ttlColaMs) // x-message-ttl
-                .maxLength(maxLength) // x-max-length
+                .quorum()
+                .deadLetterExchange(dlx)
+                .deadLetterRoutingKey(routingDlx)
+                .ttl(ttlColaMs)
+                .maxLength(maxLength)
                 .build();
     }
 
-    // ───────── DLQ: durables, guardan los fallos 24 h ─────────
-
+    /**
+     * Define la cola "salon.notificaciones.dlq"
+     *
+     * Esta cola es idempotente:
+     * - Si no existe, la crea
+     * - Si ya existe, la reutiliza
+     *
+     * durable=true: sobrevive si RabbitMQ se reinicia
+     * (En producción, normalmente usarías durable=true)
+     */
     @Bean
     public Queue notificacionesDlq(@Value("${salon.mensajeria.dlq.notificaciones}") String nombre) {
         return dlq(nombre);
     }
 
+    /**
+     * Define la cola "salon.comprobantes.dlq"
+     *
+     * Esta cola es idempotente:
+     * - Si no existe, la crea
+     * - Si ya existe, la reutiliza
+     *
+     * durable=true: sobrevive si RabbitMQ se reinicia
+     * (En producción, normalmente usarías durable=true)
+     */
     @Bean
     public Queue comprobantesDlq(@Value("${salon.mensajeria.dlq.comprobantes}") String nombre) {
         return dlq(nombre);
     }
 
+    /**
+     * Define la cola "salon.aprobaciones.dlq"
+     *
+     * Esta cola es idempotente:
+     * - Si no existe, la crea
+     * - Si ya existe, la reutiliza
+     *
+     * durable=true: sobrevive si RabbitMQ se reinicia
+     * (En producción, normalmente usarías durable=true)
+     */
     @Bean
     public Queue aprobacionesDlq(@Value("${salon.mensajeria.dlq.aprobaciones}") String nombre) {
         return dlq(nombre);
     }
 
+    /**
+     * Arma una DLQ:
+     * - quorum: replicada en los 3 nodos del cluster
+     * - ttl: guarda cada mensaje fallido 24 h
+     */
     private Queue dlq(String nombre) {
         return QueueBuilder.durable(nombre).quorum().ttl(ttlDlqMs).build();
     }
 
-    // ───────── Bindings ─────────
-
+    /**
+     * Bindings: enlazan cada cola con su exchange y su routing key
+     * - salon.notificaciones  <- salon.citas.eventos  con "cita.*" (todos los eventos)
+     * - salon.comprobantes    <- salon.citas.eventos  con "cita.aprobada"
+     * - salon.aprobaciones    <- salon.citas.directo  con "cita.creada"
+     */
     @Bean
     public Declarables bindingsCitas(DirectExchange citasExchange,
             TopicExchange eventosExchange,
@@ -145,14 +217,17 @@ public class CitasRabbitConfig {
             @Value("${salon.mensajeria.routing.creada}") String creada,
             @Value("${salon.mensajeria.routing.aprobada}") String aprobada) {
         return new Declarables(
-                // La clienta se entera de todo lo que pasa con su cita
                 BindingBuilder.bind(notificacionesQueue).to(eventosExchange).with(todasLasCitas),
-                // Solo las aprobadas generan comprobante
                 BindingBuilder.bind(comprobantesQueue).to(eventosExchange).with(aprobada),
-                // A la aprobadora solo le interesan las citas nuevas
                 BindingBuilder.bind(aprobacionesQueue).to(citasExchange).with(creada));
     }
 
+    /**
+     * Bindings de las DLQ: enlazan cada DLQ con salon.citas.dlx
+     * - salon.notificaciones.dlq <- "notificaciones"
+     * - salon.comprobantes.dlq   <- "comprobantes"
+     * - salon.aprobaciones.dlq   <- "aprobaciones"
+     */
     @Bean
     public Declarables bindingsDlq(DirectExchange deadLetterExchange,
             Queue notificacionesDlq,
@@ -167,17 +242,12 @@ public class CitasRabbitConfig {
                 BindingBuilder.bind(aprobacionesDlq).to(deadLetterExchange).with(aprobaciones));
     }
 
-    // ───────── Consumo ─────────
-
     /**
-     * Factory de los consumidores de citas:
-     *  - JSON → CitaEvento.
-     *  - ACK MANUAL: el consumidor decide basicAck / basicNack (ver ConsumoConAck).
-     *  - prefetch 1: no recibe el siguiente mensaje hasta resolver el actual (también mientras reintenta).
-     *  - Un JSON que no se puede convertir ni siquiera llega al consumidor: Spring AMQP lo rechaza
-     *    sin reencolar (ConditionalRejectingErrorHandler, también en modo MANUAL) y, como la cola
-     *    tiene DLX, termina en su DLQ en vez de perderse.
-     * No es el factory por defecto, así el ejemplo de saludos sigue con texto plano y ACK automático.
+     * Listener de los consumidores de citas
+     *
+     * - JacksonJsonMessageConverter: Spring AMQP deserializa automáticamente el mensaje
+     * - acknowledge-mode: manual  # Confirmación manual
+     * - prefetch: 1               # Procesar 1 mensaje a la vez
      */
     @Bean(FACTORY_CITAS)
     public SimpleRabbitListenerContainerFactory citasListenerFactory(
@@ -191,11 +261,12 @@ public class CitasRabbitConfig {
     }
 
     /**
-     * Factory del consumidor de las DLQ. NO convierte JSON (SimpleMessageConverter entrega los
-     * bytes tal cual): a la DLQ llegan justamente mensajes que pueden no ser JSON válido. Con el
-     * conversor JSON, Spring AMQP volvía a fallar al convertirlos y, como traen x-death, los
-     * descartaba sin ACK: quedaban colgados como unacked.
-     * ACK manual: el DlqConsumidor confirma explícitamente tras registrar el fallo.
+     * Listener del consumidor de las DLQ
+     *
+     * - SimpleMessageConverter: recibe el mensaje sin convertir a JSON,
+     *   así también registra los mensajes con JSON inválido
+     * - acknowledge-mode: manual  # Confirmación manual
+     * - prefetch: 1               # Procesar 1 mensaje a la vez
      */
     @Bean(FACTORY_DLQ)
     public SimpleRabbitListenerContainerFactory dlqListenerFactory(

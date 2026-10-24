@@ -2,19 +2,24 @@ spring:
   application:
     name: ms-rabbit-admin
 
-  # En local, usuario y clave de RabbitMQ salen del mismo .env que usa docker compose.
-  # optional: si el archivo no existe (CI, ECS), no falla y se usan las variables de entorno.
+  # En local, usuario y clave salen de rabbitmq/.env (el mismo que usa docker compose)
   config:
     import: "optional:file:../rabbitmq/.env[.properties]"
 
   rabbitmq:
-    # Los 3 nodos del cluster (guia 2.3.1). Si el nodo al que esta conectado se cae,
-    # Spring se reconecta a otro de la lista. random: reparte los clientes entre nodos.
+    # Conexión
+    # addresses - los 3 nodos del cluster (en la guía: host: localhost y port: 5672)
+    #   localhost - RabbitMQ está en tu máquina local
+    #   5672, 5673, 5674 - Puerto AMQP estándar de cada nodo
     addresses: ${RABBITMQ_ADDRESSES:localhost:5672,localhost:5673,localhost:5674}
+    # random - se conecta a un nodo al azar; si ese nodo se cae, usa otro
     address-shuffle-mode: random
+    # username/password - Credenciales
     username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASS:guest}
-    connection-timeout: 3s # si el broker no responde, la API contesta 503 rapido
+    # virtual-host: / - Virtual host por defecto (no se indica)
+    # Pool de conexiones
+    connection-timeout: 3s
 
   # Emisor de tokens: el pool de Cognito (mismo default que ms-reservas)
   security:
@@ -34,7 +39,7 @@ seguridad:
 management:
   health:
     rabbit:
-      enabled: false # sin esto, health quedaria DOWN sin broker y ECS reiniciaria la tarea
+      enabled: false # health sin RabbitMQ: si el broker no está, la app sigue sana
   endpoints:
     web:
       exposure:
@@ -42,8 +47,7 @@ management:
 
 salon:
   admin:
-    # Recursos del sistema de reservas: esta API NO permite borrarlos
-    # (ni quitarles bindings), porque los usan ms-reservas y ms-notificaciones.
+    # Colas y exchanges del salón que esta API no deja borrar
     protegidos:
       - salon.notificaciones
       - salon.comprobantes

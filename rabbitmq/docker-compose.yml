@@ -1,17 +1,17 @@
-# Cluster RabbitMQ de 3 nodos para el sistema de reservas de belleza (guía 2.3.1, RabbitMQ 4).
-# Uso:  cd rabbitmq ; docker compose up -d
-# Usuario, clave y cookie salen de rabbitmq/.env (copia .env.example y cambia los valores).
+# RabbitMQ con Docker Compose: cluster de 3 nodos para el sistema de reservas
+# Levantar: docker compose up -d
+# Verificar: docker compose ps   (HEALTH debe ser "healthy")
 #
-# 3 nodos = mínimo para quórum: una cola quorum sigue funcionando con 2 de 3 nodos vivos.
+# Se omite 'version' (la guía usa '3.8'): Docker Compose v2 lo marca como obsoleto y lo ignora
 
-# Lo común a los 3 nodos (ancla YAML)
+# Configuración común de los 3 nodos
 x-nodo: &nodo
   image: rabbitmq:4-management
   environment:
-    # Usuario inicial: solo se crea la PRIMERA vez (volúmenes vacíos); el cluster lo comparte
+    # Usuario y contraseña (desde rabbitmq/.env)
     RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?Falta RABBITMQ_USER en rabbitmq/.env}
     RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:?Falta RABBITMQ_PASS en rabbitmq/.env}
-    # Misma cookie de Erlang en los 3: sin ella los nodos no se reconocen entre sí
+    # Cookie de Erlang: la misma en los 3 nodos para que formen el cluster
     RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_COOKIE:?Falta RABBITMQ_COOKIE en rabbitmq/.env}
   volumes:
     - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
@@ -28,11 +28,11 @@ x-nodo: &nodo
 services:
   rabbitmq-1:
     <<: *nodo
-    hostname: rabbitmq-1 # nombre del nodo: rabbit@rabbitmq-1 (debe calzar con rabbitmq.conf)
-    container_name: rabbitmq-salon-1 # "rabbitmq" ya lo usa otro proyecto en esta máquina
+    hostname: rabbitmq-1
+    container_name: rabbitmq-salon-1
     ports:
-      - "5672:5672" # AMQP
-      - "15672:15672" # panel web: http://localhost:15672
+      - "5672:5672" # AMQP Protocol Port
+      - "15672:15672" # Management UI Port
     volumes:
       - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
       - rabbitmq_1_data:/var/lib/rabbitmq
@@ -42,8 +42,8 @@ services:
     hostname: rabbitmq-2
     container_name: rabbitmq-salon-2
     ports:
-      - "5673:5672"
-      - "15673:15672"
+      - "5673:5672" # AMQP Protocol Port
+      - "15673:15672" # Management UI Port
     volumes:
       - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
       - rabbitmq_2_data:/var/lib/rabbitmq
@@ -53,8 +53,8 @@ services:
     hostname: rabbitmq-3
     container_name: rabbitmq-salon-3
     ports:
-      - "5674:5672"
-      - "15674:15672"
+      - "5674:5672" # AMQP Protocol Port
+      - "15674:15672" # Management UI Port
     volumes:
       - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
       - rabbitmq_3_data:/var/lib/rabbitmq

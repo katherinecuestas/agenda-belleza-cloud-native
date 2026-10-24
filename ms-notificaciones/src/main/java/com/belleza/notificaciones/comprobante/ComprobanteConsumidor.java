@@ -16,7 +16,15 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 
-/** Genera el comprobante de una cita aprobada (TOPIC, solo cita.aprobada). */
+/**
+ * Consumidor (Receiver) - Recibe mensajes de la cola 'salon.comprobantes'
+ *
+ * Genera el comprobante de una cita aprobada (solo cita.aprobada)
+ *
+ * Basado en:
+ * https://www.rabbitmq.com/tutorials/tutorial-one-spring-amqp
+ * https://docs.spring.io/spring-amqp/reference/
+ */
 @Component
 public class ComprobanteConsumidor {
 
@@ -31,6 +39,20 @@ public class ComprobanteConsumidor {
         this.cola = cola;
     }
 
+    /**
+     * Este método se ejecuta automáticamente cada vez que
+     * llega un mensaje a la cola 'salon.comprobantes'
+     *
+     * La anotación @RabbitListener:
+     * - Registra este método como listener de mensajes
+     * - queues="salon.comprobantes" especifica la cola a escuchar
+     *
+     * Parámetros:
+     * - evento: Spring AMQP deserializa automáticamente el mensaje
+     * - channel: Acceso al canal AMQP para confirmación manual (manual acks)
+     * - tag: identifica el mensaje en basicAck() / basicNack()
+     * - simularFallo: header opcional para la demo de errores
+     */
     @RabbitListener(queues = "${salon.mensajeria.colas.comprobantes}",
             containerFactory = CitasRabbitConfig.FACTORY_CITAS)
     public void recibir(CitaEvento evento, Channel channel,

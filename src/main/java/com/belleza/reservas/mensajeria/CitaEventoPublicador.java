@@ -13,23 +13,35 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /**
- * Puente entre los eventos de Spring y RabbitMQ. Corre DESPUÉS del commit:
- * solo se publica lo que de verdad quedó guardado.
+ * Productor (Sender) - Envía mensajes a los exchanges
+ * 'salon.citas.eventos' (todos los eventos) y 'salon.citas.directo' (solo cita.creada)
  *
- * Destinos:
- *  - TOPIC salon.citas.eventos: todos los eventos (pub/sub, guía 2.2.1).
- *  - DIRECT salon.citas.directo: solo cita.creada, para la aprobadora (guía 2.1.3).
+ * Basado en:
+ * https://www.rabbitmq.com/tutorials/tutorial-one-spring-amqp
+ * https://docs.spring.io/spring-amqp/reference/
  */
 @Component
 public class CitaEventoPublicador {
 
     private static final Logger log = LoggerFactory.getLogger(CitaEventoPublicador.class);
 
+    /**
+     * RabbitTemplate es la clase principal de Spring AMQP
+     * para enviar mensajes.
+     *
+     * Proporciona métodos simplificados para:
+     * - convertAndSend(): convierte objeto a JSON y envía
+     * - convertSendAndReceive(): espera respuesta
+     */
     private final RabbitTemplate rabbitTemplate;
     private final String exchangeDirecto;
     private final String exchangeEventos;
     private final Map<TipoEventoCita, String> routingKeys = new EnumMap<>(TipoEventoCita.class);
 
+    /**
+     * Spring inyecta automáticamente la instancia de RabbitTemplate
+     * (y los nombres de exchanges y routing keys de application.properties)
+     */
     public CitaEventoPublicador(RabbitTemplate rabbitTemplate,
             @Value("${salon.mensajeria.exchange.citas}") String exchangeDirecto,
             @Value("${salon.mensajeria.exchange.eventos}") String exchangeEventos,
@@ -46,6 +58,11 @@ public class CitaEventoPublicador {
         routingKeys.put(TipoEventoCita.CANCELADA, cancelada);
     }
 
+    /**
+     * Método para enviar un evento de cita
+     *
+     * AFTER_COMMIT: se ejecuta solo cuando la cita ya quedó guardada
+     */
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void publicar(CitaEvento evento) {
         String routingKey = routingKeys.get(evento.tipo());
@@ -55,15 +72,25 @@ public class CitaEventoPublicador {
         }
     }
 
-    /** Cada destino por separado: si uno falla, se intenta igual el otro. */
+    /**
+     * Versión con exchange explícito
+     * (para casos más avanzados)
+     *
+     * Parámetros:
+     * - exchange: "salon.citas.eventos" o "salon.citas.directo"
+     * - routingKey: cita.creada, cita.aprobada, cita.rechazada o cita.cancelada
+     * - evento: el contenido del mensaje
+     */
     private void publicarEn(String exchange, String routingKey, CitaEvento evento) {
         String eventoId = evento.eventoId().toString();
         try {
+            // Enviar el mensaje al exchange
+            // convertAndSend(): Convierte el objeto Java a JSON y lo envía a RabbitMQ
             rabbitTemplate.convertAndSend(exchange, routingKey, evento,
                     mensaje -> {
-                        // Durabilidad: el mensaje se escribe a disco (además, exchange y cola son durables)
+                        // Mensaje persistente: sobrevive si RabbitMQ se reinicia
                         mensaje.getMessageProperties().setDeliveryMode(MessageDeliveryMode.PERSISTENT);
-                        // El consumidor usa el messageId/eventoId para descartar duplicados
+                        // messageId = eventoId: el consumidor lo usa para ignorar repetidos
                         mensaje.getMessageProperties().setMessageId(eventoId);
                         return mensaje;
                     },
@@ -71,8 +98,7 @@ public class CitaEventoPublicador {
             log.info("Evento publicado: {} cita={} exchange={} routingKey={} eventoId={}",
                     evento.tipo(), evento.citaId(), exchange, routingKey, eventoId);
         } catch (RuntimeException e) {
-            // La cita ya está guardada: un fallo de mensajería (AmqpException u otro) no debe
-            // llegar al controller, o la API respondería 500 por una operación que sí se hizo
+            // Si RabbitMQ falla, solo se registra: la cita ya quedó guardada
             log.error("No se pudo publicar el evento {} eventoId={} citaId={} exchange={}: {}",
                     evento.tipo(), eventoId, evento.citaId(), exchange, e.getMessage());
         }

@@ -9,25 +9,48 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Lado productor: solo declara los exchanges. Las colas y sus bindings son
- * decisión de cada consumidor (ms-notificaciones).
+ * Configuración de RabbitMQ
+ *
+ * Basada en:
+ * https://www.rabbitmq.com/tutorials/tutorial-one-spring-amqp
+ * https://docs.spring.io/spring-amqp/reference/
  */
 @Configuration
 public class RabbitProductorConfig {
 
-    /** DIRECT (guía 2.1.3). Durable y sin auto-delete: debe coincidir con la declaración del consumidor. */
+    /**
+     * Define el exchange "salon.citas.directo" (DIRECT)
+     *
+     * Exchange explícito (para casos más avanzados):
+     * la routing key debe coincidir exacta con la del binding
+     *
+     * durable=true: sobrevive si RabbitMQ se reinicia
+     * (En producción, normalmente usarías durable=true)
+     */
     @Bean
     public DirectExchange citasExchange(@Value("${salon.mensajeria.exchange.citas}") String nombre) {
         return new DirectExchange(nombre, true, false);
     }
 
-    /** TOPIC (guía 2.2.1): recibe todos los eventos; los consumidores se enlazan con patrones. */
+    /**
+     * Define el exchange "salon.citas.eventos" (TOPIC)
+     *
+     * Exchange explícito (para casos más avanzados):
+     * la routing key se compara con patrones, por ejemplo "cita.*"
+     *
+     * durable=true: sobrevive si RabbitMQ se reinicia
+     * (En producción, normalmente usarías durable=true)
+     */
     @Bean
     public TopicExchange eventosExchange(@Value("${salon.mensajeria.exchange.eventos}") String nombre) {
         return new TopicExchange(nombre, true, false);
     }
 
-    /** Los eventos viajan como JSON (Jackson 3). Spring Boot lo conecta al RabbitTemplate. */
+    /**
+     * Conversor JSON del RabbitTemplate
+     *
+     * convertAndSend(): Convierte el objeto Java a JSON y lo envía a RabbitMQ
+     */
     @Bean
     public MessageConverter mensajeriaJsonConverter() {
         return new JacksonJsonMessageConverter();
